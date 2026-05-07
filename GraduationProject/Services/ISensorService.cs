@@ -1,10 +1,12 @@
-﻿namespace GraduationProject.Services
+﻿using GraduationProject.Contracts.Sensors;
+
+namespace GraduationProject.Services
 {
     public interface ISensorService
     {
-        Task<IEnumerable<Sensor>> GetAllAsync();
-        Task<Sensor?> GetAsync(int id);
-        Task<Sensor> AddAsync(Sensor sensor);
-        Task<bool> DeleteAsync(int id);
+        Task<IEnumerable<SensorResponse>> GetAllAsync(CancellationToken cancellationToken = default);
+        Task<Result<SensorResponse>> GetAsync(int id, CancellationToken cancellationToken = default);
+        Task<Result<SensorResponse>> AddAsync(SensorRequest request, CancellationToken cancellationToken = default);
+        Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default);
     }
 }

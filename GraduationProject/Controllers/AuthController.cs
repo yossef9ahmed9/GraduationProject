@@ -17,10 +17,10 @@
                     request.Email,
                     request.Password,
                     cancellationToken);
-
-            return authenticationResult is null
-                ? BadRequest("invalid email or password")
-                : Ok(authenticationResult);
+            return authenticationResult.IsSuccess ? Ok(authenticationResult.Value) : authenticationResult.ToProblem();
+            //return authenticationResult is null
+            //    ? BadRequest("invalid email or password")
+            //    : Ok(authenticationResult);
         }
 
         [HttpPost("register")]
@@ -33,7 +33,7 @@
                     request,
                     cancellationToken);
 
-            return result is null ? BadRequest() : Ok(result);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
         [HttpPost("refresh")]
@@ -43,7 +43,7 @@
                 await _authenticationService.RefreshTokenAsync(
                     request.RefreshToken);
 
-            return result is null ? BadRequest() : Ok(result);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
     }
 }

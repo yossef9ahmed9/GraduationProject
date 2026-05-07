@@ -4,10 +4,10 @@ namespace GraduationProject.Services
 {
     public interface IPatientService
     {
-        Task<IEnumerable<Patient>>GetAllPatientsAsync(CancellationToken cancellationToken = default); 
-        Task<Patient> GetPatientAsync(int id, CancellationToken cancellationToken = default);
-        Task<Patient> AddPatientAsync(Patient patient, CancellationToken cancellationToken = default);
-        Task<bool>UpdatePatientAsync(int id, Patient patient, CancellationToken cancellationToken = default);
-        Task<bool> DeletePatientAsync(int id, CancellationToken cancellationToken = default);
+        Task<IEnumerable<PatientResponse>> GetAllPatientsAsync(CancellationToken cancellationToken = default); 
+        Task<Result<PatientResponse?>> GetPatientAsync(int id, CancellationToken cancellationToken = default);
+        Task<Result<PatientResponse>> AddPatientAsync(PatientRequest patient, CancellationToken cancellationToken = default);
+        Task<Result> UpdatePatientAsync(int id, PatientRequest patient, CancellationToken cancellationToken = default);
+        Task<Result> DeletePatientAsync(int id, CancellationToken cancellationToken = default);
     }
 }

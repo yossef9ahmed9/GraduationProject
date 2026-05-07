@@ -1,44 +1,79 @@
-﻿namespace GraduationProject.Services
+﻿using GraduationProject.Contracts.Doctors;
+
+namespace GraduationProject.Services
 {
     public class DoctorService(AppDbContext context) : IDoctorService
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<Doctor>> GetAllAsync() =>
-            await _context.Doctors.AsNoTracking().ToListAsync();
-
-        public async Task<Doctor?> GetAsync(int id) =>
-            await _context.Doctors.FindAsync(id);
-
-        public async Task<Doctor> AddAsync(Doctor doctor)
+        public async Task<IEnumerable<DoctorResponse>> GetAllAsync(CancellationToken cancellationToken = default)
         {
-            await _context.Doctors.AddAsync(doctor);
-            await _context.SaveChangesAsync();
-            return doctor;
+            return await _context.Doctors
+                .AsNoTracking()
+                .ProjectToType<DoctorResponse>()
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<bool> UpdateAsync(int id, Doctor doctor)
+        public async Task<Result<DoctorResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
         {
-            var existing = await GetAsync(id);
-            if (existing == null) return false;
+            var doctor = await _context.Doctors
+                .AsNoTracking()
+                .Where(d => d.Id == id)
+                .ProjectToType<DoctorResponse>()
+                .FirstOrDefaultAsync(cancellationToken);
 
-            existing.Name = doctor.Name;
-            existing.Phone = doctor.Phone;
-            existing.Email = doctor.Email;
-            existing.Specialization = doctor.Specialization;
-
-            await _context.SaveChangesAsync();
-            return true;
+            return doctor == null
+                ? Result.Failure<DoctorResponse>(DoctorErors.DoctorNotFound)
+                : Result.Success(doctor);
         }
 
-        public async Task<bool> DeleteAsync(int id)
+        public async Task<Result<DoctorResponse>> AddAsync(DoctorRequest request, CancellationToken cancellationToken = default)
         {
-            var doctor = await GetAsync(id);
-            if (doctor == null) return false;
+            var exists = await _context.Doctors
+                .AnyAsync(d => d.Email == request.Email, cancellationToken);
+
+            if (exists)
+                return Result.Failure<DoctorResponse>(DoctorErors.DuplicatedDoctor);
+
+            var doctor = request.Adapt<Doctor>();
+
+            await _context.Doctors.AddAsync(doctor, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success(doctor.Adapt<DoctorResponse>());
+        }
+
+        public async Task<Result> UpdateAsync(int id,DoctorRequest request,CancellationToken cancellationToken = default)
+        {
+            var doctor = await _context.Doctors.FindAsync(new object[] { id }, cancellationToken);
+
+            if (doctor == null)
+                return Result.Failure(DoctorErors.DoctorNotFound);
+
+            var exists = await _context.Doctors
+                .AnyAsync(d => d.Email == request.Email && d.Id != id, cancellationToken);
+
+            if (exists)
+                return Result.Failure(DoctorErors.DuplicatedDoctor);
+
+            request.Adapt(doctor);
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
+
+        public async Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default)
+        {
+            var doctor = await _context.Doctors.FindAsync(new object[] { id }, cancellationToken);
+
+            if (doctor == null)
+                return Result.Failure(DoctorErors.DoctorNotFound);
 
             _context.Doctors.Remove(doctor);
-            await _context.SaveChangesAsync();
-            return true;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
         }
     }
 }

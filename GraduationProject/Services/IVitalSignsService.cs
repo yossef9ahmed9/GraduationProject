@@ -1,8 +1,10 @@
-﻿namespace GraduationProject.Services
+﻿using GraduationProject.Contracts.VitalSigns;
+
+namespace GraduationProject.Services
 {
     public interface IVitalSignsService
     {
-        Task<IEnumerable<VitalSigns>> GetAllAsync();
-        Task<VitalSigns> AddAsync(VitalSigns vital);
+        Task<IEnumerable<VitalSignsResponse>> GetAllAsync(CancellationToken cancellationToken = default);
+        Task<Result<VitalSignsResponse>> AddAsync(VitalSignsRequest request, CancellationToken cancellationToken = default);
     }
 }

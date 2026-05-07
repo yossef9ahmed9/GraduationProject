@@ -1,4 +1,3 @@
-using GraduationProject.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,12 +13,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseAuthentication();
 
 app.UseAuthorization();
 
 app.MapControllers();
+
+
+app.UseExceptionHandler();
 
 app.Run();

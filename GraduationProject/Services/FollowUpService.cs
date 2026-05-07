@@ -1,17 +1,27 @@
-﻿namespace GraduationProject.Services
+﻿using GraduationProject.Contracts.FollowUps;
+
+namespace GraduationProject.Services
 {
     public class FollowUpService(AppDbContext context) : IFollowUpService
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<FollowUp>> GetAllAsync() =>
-            await _context.FollowUps.ToListAsync();
-
-        public async Task<FollowUp> AddAsync(FollowUp followUp)
+        public async Task<IEnumerable<FollowUpResponse>> GetAllAsync(CancellationToken cancellationToken = default)
         {
-            await _context.FollowUps.AddAsync(followUp);
-            await _context.SaveChangesAsync();
-            return followUp;
+            return await _context.FollowUps
+                .AsNoTracking()
+                .ProjectToType<FollowUpResponse>()
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<Result<FollowUpResponse>> AddAsync(FollowUpRequest request, CancellationToken cancellationToken = default)
+        {
+            var followUp = request.Adapt<FollowUp>();
+
+            await _context.FollowUps.AddAsync(followUp, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success(followUp.Adapt<FollowUpResponse>());
         }
     }
 }

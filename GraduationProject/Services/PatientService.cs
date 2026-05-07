@@ -7,14 +7,17 @@ namespace GraduationProject.Services
        
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<Patient>> GetAllPatientsAsync(CancellationToken cancellationToken = default) =>
-            await _context.Patients.AsNoTracking().ToListAsync(cancellationToken);
+        public async Task<IEnumerable<PatientResponse>> GetAllPatientsAsync(CancellationToken cancellationToken = default) =>
+            await _context.Patients.AsNoTracking().ProjectToType<PatientResponse>().ToListAsync(cancellationToken);
 
 
 
 
-        public async Task<Patient> GetPatientAsync(int id, CancellationToken cancellationToken=default) => 
-            await _context.Patients.FindAsync(id, cancellationToken);
+        public async Task<Result<PatientResponse>> GetPatientAsync(int id, CancellationToken cancellationToken=default)
+        {
+            var patient = await _context.Patients.FindAsync(id, cancellationToken);
+            return patient == null ? Result.Failure<PatientResponse?>(PatientErrors.PatientNotFound) : Result.Success(patient.Adapt<PatientResponse>());
+        }
 
 
 
@@ -25,44 +28,55 @@ namespace GraduationProject.Services
         //        //    return patient;
         //        //}   المشكله هنا ان لو الليست فاضى الكود هيشخرلى 
 
-        public async Task<Patient> AddPatientAsync(Patient patient,CancellationToken cancellationToken = default)
+        
+            public async Task<Result<PatientResponse>> AddPatientAsync( PatientRequest request,CancellationToken cancellationToken = default)
         {
-           
+            var exists = await _context.Patients
+                .AnyAsync(p => p.Email == request.Email , cancellationToken);
 
-           await _context.Patients.AddAsync(patient,cancellationToken);
-            await _context.SaveChangesAsync(cancellationToken);
-            return patient;
-        }
+            if (exists)
+                return Result.Failure<PatientResponse>(PatientErrors.DuplicatedPatient);
 
-        public async Task<bool> UpdatePatientAsync(int id, Patient patient, CancellationToken cancellationToken=default)
-        {
-            var existingPatient =await GetPatientAsync(id,cancellationToken);
-            if (existingPatient == null)
-            {
-                return false;
-            }
-            existingPatient.Name = patient.Name;
-            existingPatient.BirthDate = patient.BirthDate;
-            existingPatient.MedicalRecord = patient.MedicalRecord;
-            existingPatient.Gender = patient.Gender;
-            existingPatient.Phone = patient.Phone;
-            existingPatient.Email = patient.Email;
-            existingPatient.Address = patient.Address;
+            var newPatient = request.Adapt<Patient>();
+
+            await _context.Patients.AddAsync(newPatient, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
-            return true;
+            return Result.Success(newPatient.Adapt<PatientResponse>());
         }
 
-        public async Task<bool> DeletePatientAsync(int id, CancellationToken cancellationToken = default)
+
+
+        public async Task<Result> UpdatePatientAsync(int id, PatientRequest request,CancellationToken cancellationToken = default)
         {
-            var patient = await GetPatientAsync(id, cancellationToken);
+            var patient = await _context.Patients.FindAsync(  id , cancellationToken);
+
+            if (patient == null)
+                return Result.Failure(PatientErrors.PatientNotFound);
+
+            var exists = await _context.Patients
+                .AnyAsync(p => (p.Email == request.Email) && p.Id != id,cancellationToken);
+
+            if (exists)
+                return Result.Failure(PatientErrors.DuplicatedPatient);
+
+            request.Adapt(patient);
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
+
+        public async Task<Result> DeletePatientAsync(int id, CancellationToken cancellationToken = default)
+        {
+            var patient = await _context.Patients.FindAsync(id, cancellationToken);
             if (patient == null)
             {
-                return false;
+                return Result.Failure(PatientErrors.PatientNotFound);
             }
             _context.Patients.Remove(patient);
             await _context.SaveChangesAsync(cancellationToken);
-            return true;
+            return Result.Success();
         }
 
 

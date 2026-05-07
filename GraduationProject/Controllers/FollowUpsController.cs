@@ -10,14 +10,19 @@ namespace GraduationProject.Controllers
         private readonly IFollowUpService _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> Get()
-            => Ok(await _service.GetAllAsync());
+        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        {
+            return Ok(await _service.GetAllAsync(cancellationToken));
+        }
 
         [HttpPost]
-        public async Task<IActionResult> Create(FollowUpRequest request)
+        public async Task<IActionResult> Create(FollowUpRequest request, CancellationToken cancellationToken)
         {
-            var followUp = await _service.AddAsync(request.Adapt<FollowUp>());
-            return Ok(followUp);
+            var result = await _service.AddAsync(request, cancellationToken);
+
+            return result.IsSuccess
+                ? Ok(result.Value)
+                : result.ToProblem();
         }
     }
 }

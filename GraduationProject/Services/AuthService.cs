@@ -1,4 +1,6 @@
-﻿namespace GraduationProject.Services
+﻿using GraduationProject.Errors;
+
+namespace GraduationProject.Services
 {
     public class AuthService(
         UserManager<ApplicationUser> userManager,
@@ -11,7 +13,7 @@
 
         private readonly AppDbContext _context = context;
 
-        public async Task<AuthResponse?> GetTokkenAsync(
+        public async Task<Result<AuthResponse?>> GetTokkenAsync(
             string email,
             string password,
             CancellationToken cancellationToken = default)
@@ -19,13 +21,13 @@
             var user = await _userManager.FindByEmailAsync(email);
 
             if (user == null)
-                return null;
+                return Result.Failure<AuthResponse>(UserErrors.InvalidCredentials);
 
             var IsVAlidPassword =
                 await _userManager.CheckPasswordAsync(user, password);
 
             if (!IsVAlidPassword)
-                return null;
+                return Result.Failure<AuthResponse>(UserErrors.InvalidCredentials);
 
             var (token, expiresIn) = _JwtProvider.GenerateToken(user);
 
@@ -40,7 +42,7 @@
 
             await _userManager.UpdateAsync(user);
 
-            return new AuthResponse(
+            var response= new AuthResponse(
                 user.Id,
                 user.FullName,
                 user.Email,
@@ -48,9 +50,10 @@
                 expiresIn * 60,
                 refreshToken
             );
+            return Result.Success(response);
         }
 
-        public async Task<AuthResponse?> RegisterAsync(
+        public async Task<Result<AuthResponse?>> RegisterAsync(
             RegisterRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -65,7 +68,7 @@
                 await _userManager.CreateAsync(user, request.Password);
 
             if (!result.Succeeded)
-                return null;
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
 
             var (token, expiresIn) =
                 _JwtProvider.GenerateToken(user);
@@ -82,7 +85,7 @@
 
             await _userManager.UpdateAsync(user);
 
-            return new AuthResponse(
+            var response= new AuthResponse(
                 user.Id,
                 user.FullName,
                 user.Email,
@@ -90,9 +93,10 @@
                 expiresIn * 60,
                 refreshToken
             );
+            return Result.Success(response);
         }
 
-        public async Task<AuthResponse?> RefreshTokenAsync(string token)
+        public async Task<Result<AuthResponse?>> RefreshTokenAsync(string token)
         {
             var user = _context.Users
                 .Include(u => u.RefreshTokens)
@@ -100,14 +104,13 @@
                     u.RefreshTokens.Any(t => t.Token == token));
 
             if (user is null)
-                return null;
+                return Result.Failure<AuthResponse>(UserErrors.InvalidRefreshToken);
 
             var refreshToken =
                 user.RefreshTokens.Single(t => t.Token == token);
 
             if (!refreshToken.IsActive)
-                return null;
-
+                return Result.Failure<AuthResponse>(UserErrors.InvalidRefreshToken);
             refreshToken.RevokedOn = DateTime.UtcNow;
 
             var newRefreshToken =
@@ -125,7 +128,7 @@
 
             await _userManager.UpdateAsync(user);
 
-            return new AuthResponse(
+            var response = new AuthResponse(
                 user.Id,
                 user.FullName,
                 user.Email,
@@ -133,6 +136,7 @@
                 expiresIn * 60,
                 newRefreshToken
             );
+            return Result.Success(response);
         }
     }
 }

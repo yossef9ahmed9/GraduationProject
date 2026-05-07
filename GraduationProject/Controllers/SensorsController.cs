@@ -10,21 +10,39 @@ namespace GraduationProject.Controllers
         private readonly ISensorService _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> Get()
-            => Ok((await _service.GetAllAsync()).Adapt<IEnumerable<SensorResponse>>());
+        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        {
+            return Ok(await _service.GetAllAsync(cancellationToken));
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
+        {
+            var result = await _service.GetAsync(id, cancellationToken);
+
+            return result.IsSuccess
+                ? Ok(result.Value)
+                : result.ToProblem();
+        }
 
         [HttpPost]
-        public async Task<IActionResult> Create(SensorRequest request)
+        public async Task<IActionResult> Create(SensorRequest request, CancellationToken cancellationToken)
         {
-            var sensor = await _service.AddAsync(request.Adapt<Sensor>());
-            return Ok(sensor);
+            var result = await _service.AddAsync(request, cancellationToken);
+
+            return result.IsSuccess
+                ? Ok(result.Value)
+                : result.ToProblem();
         }
 
         [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
+        public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
         {
-            var deleted = await _service.DeleteAsync(id);
-            return deleted ? NoContent() : NotFound();
+            var result = await _service.DeleteAsync(id, cancellationToken);
+
+            return result.IsSuccess
+                ? NoContent()
+                : result.ToProblem();
         }
     }
 }

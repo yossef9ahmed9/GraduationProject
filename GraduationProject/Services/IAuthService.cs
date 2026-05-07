@@ -2,15 +2,15 @@
 {
     public interface IAuthService
     {
-        Task<AuthResponse?> GetTokkenAsync(
+        Task<Result<AuthResponse?>> GetTokkenAsync(
             string email,
             string password,
             CancellationToken cancellationToken = default);
 
-        Task<AuthResponse?> RegisterAsync(
+        Task<Result<AuthResponse?>> RegisterAsync(
             RegisterRequest request,
             CancellationToken cancellationToken = default);
 
-        Task<AuthResponse?> RefreshTokenAsync(string token);
+        Task<Result<AuthResponse?>> RefreshTokenAsync(string token);
     }
 }

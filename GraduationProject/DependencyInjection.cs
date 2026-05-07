@@ -16,6 +16,8 @@ namespace GraduationProject
             services.AddAuthConfig();
             services.AddFluentValidationsConfig();
             services.AddSwaggerConfig();
+            services.AddExceptionHandler<GlobalExceptionHandler>();
+            services.AddProblemDetails();
 
             var connectionString = configuration.GetConnectionString("DefaultConnection") ??
                 throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");

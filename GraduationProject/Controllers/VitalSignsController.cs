@@ -9,14 +9,20 @@ namespace GraduationProject.Controllers
         private readonly IVitalSignsService _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> Get()
-            => Ok(await _service.GetAllAsync());
+        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        {
+            return Ok(await _service.GetAllAsync(cancellationToken));
+        }
 
         [HttpPost]
-        public async Task<IActionResult> Create(VitalSignsRequest request)
+        public async Task<IActionResult> Create(VitalSignsRequest request, CancellationToken cancellationToken)
         {
-            var vital = await _service.AddAsync(request.Adapt<VitalSigns>());
-            return Ok(vital);
+            var result = await _service.AddAsync(request, cancellationToken);
+
+            return result.IsSuccess
+                ? Ok(result.Value)
+                : result.ToProblem();
         }
+    
     }
 }

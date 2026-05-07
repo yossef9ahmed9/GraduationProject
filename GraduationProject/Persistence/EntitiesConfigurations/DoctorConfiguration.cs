@@ -20,9 +20,7 @@ namespace GraduationProject.Presistence.EntitiesConfigurations
             builder.Property(x => x.Phone)
                 .HasMaxLength(11);
 
-            builder.HasIndex(x => x.Phone)
-                .IsUnique();
-
+            
             builder.Property(x => x.Specialization)
                 .IsRequired()
                 .HasMaxLength(100);

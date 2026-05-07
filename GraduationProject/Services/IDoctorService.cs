@@ -1,11 +1,15 @@
-﻿namespace GraduationProject.Services
+﻿using GraduationProject.Contracts.Doctors;
+
+namespace GraduationProject.Services
 {
-    public interface IDoctorService
-    {
-        Task<IEnumerable<Doctor>> GetAllAsync();
-        Task<Doctor?> GetAsync(int id);
-        Task<Doctor> AddAsync(Doctor doctor);
-        Task<bool> UpdateAsync(int id, Doctor doctor);
-        Task<bool> DeleteAsync(int id);
+    
+
+        public interface IDoctorService
+        {
+            Task<IEnumerable<DoctorResponse>> GetAllAsync(CancellationToken cancellationToken = default);
+            Task<Result<DoctorResponse>> GetAsync(int id, CancellationToken cancellationToken = default);
+            Task<Result<DoctorResponse>> AddAsync(DoctorRequest doctor, CancellationToken cancellationToken = default);
+            Task<Result> UpdateAsync(int id, DoctorRequest doctor, CancellationToken cancellationToken = default);
+            Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default);
+        }
     }
-}

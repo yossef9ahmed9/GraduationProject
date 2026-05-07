@@ -10,39 +10,49 @@ namespace GraduationProject.Controllers
         private readonly IDoctorService _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> Get()
+        public async Task<IActionResult> Get(CancellationToken cancellationToken)
         {
-            var data = await _service.GetAllAsync();
-            return Ok(data.Adapt<IEnumerable<DoctorResponse>>());
+            return Ok(await _service.GetAllAsync(cancellationToken));
         }
 
         [HttpGet("{id}")]
-        public async Task<IActionResult> Get(int id)
+        public async Task<IActionResult> Get(int id, CancellationToken cancellationToken)
         {
-            var doctor = await _service.GetAsync(id);
-            if (doctor == null) return NotFound();
-            return Ok(doctor.Adapt<DoctorResponse>());
+            var result = await _service.GetAsync(id, cancellationToken);
+
+            return result.IsSuccess
+                ? Ok(result.Value)
+                : result.ToProblem();
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create(DoctorRequest request)
+        public async Task<IActionResult> Create(DoctorRequest request, CancellationToken cancellationToken)
         {
-            var doctor = await _service.AddAsync(request.Adapt<Doctor>());
-            return Ok(doctor);
+            var result = await _service.AddAsync(request, cancellationToken);
+
+            return result.IsSuccess
+                ? CreatedAtAction(nameof(Get), new { id = result.Value.Id }, result.Value)
+                : result.ToProblem();
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, DoctorRequest request)
+        public async Task<IActionResult> Update(int id, DoctorRequest request, CancellationToken cancellationToken)
         {
-            var updated = await _service.UpdateAsync(id, request.Adapt<Doctor>());
-            return updated ? NoContent() : NotFound();
+            var result = await _service.UpdateAsync(id, request, cancellationToken);
+
+            return result.IsSuccess
+                ? NoContent()
+                : result.ToProblem();
         }
 
         [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
+        public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
         {
-            var deleted = await _service.DeleteAsync(id);
-            return deleted ? NoContent() : NotFound();
+            var result = await _service.DeleteAsync(id, cancellationToken);
+
+            return result.IsSuccess
+                ? NoContent()
+                : result.ToProblem();
         }
     }
 }

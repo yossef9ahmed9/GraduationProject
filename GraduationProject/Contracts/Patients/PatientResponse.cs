@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Contracts.Patients
 {
-     record PatientResponse
+   public  record PatientResponse
     (
      int Id ,
      string Name, 
