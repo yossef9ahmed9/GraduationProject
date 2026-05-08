@@ -21,6 +21,13 @@ namespace GraduationProject.Mapping
 
             config.NewConfig<VitalSignsRequest, VitalSigns>()
                 .Map(dest => dest.TimeStamp, src => DateTime.UtcNow);
+                // PatientId and SensorId map automatically by name
+
+            // NEW: map Patient navigation property to get PatientName in response
+            config.NewConfig<VitalSigns, VitalSignsResponse>()
+                .Map(dest => dest.PatientName, src => src.Patient != null
+                    ? src.Patient.Name
+                    : string.Empty);
 
             config.NewConfig<FollowUpRequest, FollowUp>()
                 .Map(dest => dest.LastUpdate, src => DateTime.UtcNow);

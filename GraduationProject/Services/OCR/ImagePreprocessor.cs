@@ -1,7 +1,6 @@
 ﻿using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Processing;
-using static System.Net.Mime.MediaTypeNames;
 using Image = SixLabors.ImageSharp.Image;
 
 namespace GraduationProject.Services.OCR
@@ -12,24 +11,36 @@ namespace GraduationProject.Services.OCR
         {
             using var image = Image.Load(input);
 
+            // FIXED: smarter resize — only upscale small images
+            // upscaling a large image wastes memory and hurts OCR
+            int targetWidth = image.Width < 1000
+                ? image.Width * 2
+                : image.Width;
+
+            int targetHeight = image.Height < 1000
+                ? image.Height * 2
+                : image.Height;
+
             image.Mutate(x =>
             {
-                // تكبير الصورة (يحسن OCR جدًا)
-                x.Resize(image.Width * 2, image.Height * 2);
+                x.Resize(targetWidth, targetHeight);
 
-                // تحويل grayscale
+                // convert to grayscale — OCR works better on grayscale
                 x.Grayscale();
 
-                // تحسين التباين
-                x.Contrast(1.8f);
+                // FIXED: lower contrast value — 1.8 was too aggressive
+                // it was destroying thin characters like dots and commas
+                x.Contrast(1.3f);
 
-                // sharpening قوي للتقارير
-                x.GaussianSharpen(1.2f);
+                // FIXED: lower sharpen value — 1.2 was adding noise
+                x.GaussianSharpen(0.8f);
+
+                // NEW: brightness adjustment helps with dark scanned reports
+                x.Brightness(1.1f);
             });
 
             using var ms = new MemoryStream();
             image.Save(ms, new PngEncoder());
-
             return ms.ToArray();
         }
     }

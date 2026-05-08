@@ -4,6 +4,7 @@ using GraduationProject.Presistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GraduationProject.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260508002250_UpdateEntitiesWithRealTimeAndMedicalFields")]
+    partial class UpdateEntitiesWithRealTimeAndMedicalFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -546,9 +549,6 @@ namespace GraduationProject.Persistence.Migrations
                     b.Property<double?>("OxygenSaturation")
                         .HasColumnType("float");
 
-                    b.Property<int>("PatientId")
-                        .HasColumnType("int");
-
                     b.Property<int?>("RespiratoryRate")
                         .HasColumnType("int");
 
@@ -562,8 +562,6 @@ namespace GraduationProject.Persistence.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("PatientId");
 
                     b.HasIndex("SensorId");
 
@@ -708,7 +706,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("GraduationProject.Entities.Ambulance", "Ambulance")
                         .WithMany("EmergencyDispatches")
                         .HasForeignKey("AmbulanceId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("GraduationProject.Entities.Patient", "Patient")
@@ -727,7 +725,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("GraduationProject.Entities.Doctor", "Doctor")
                         .WithMany("FollowUps")
                         .HasForeignKey("DoctorId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("GraduationProject.Entities.Patient", "Patient")
@@ -746,7 +744,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("GraduationProject.Entities.Lab", "Lab")
                         .WithMany("MedicalTests")
                         .HasForeignKey("LabId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("GraduationProject.Entities.Patient", "Patient")
@@ -795,19 +793,11 @@ namespace GraduationProject.Persistence.Migrations
 
             modelBuilder.Entity("GraduationProject.Entities.VitalSigns", b =>
                 {
-                    b.HasOne("GraduationProject.Entities.Patient", "Patient")
-                        .WithMany("VitalSigns")
-                        .HasForeignKey("PatientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("GraduationProject.Entities.Sensor", "Sensor")
                         .WithMany("VitalSigns")
                         .HasForeignKey("SensorId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Patient");
 
                     b.Navigation("Sensor");
                 });
@@ -817,7 +807,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -826,7 +816,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("GraduationProject.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -835,7 +825,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("GraduationProject.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -844,13 +834,13 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("GraduationProject.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -859,7 +849,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasOne("GraduationProject.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -894,8 +884,6 @@ namespace GraduationProject.Persistence.Migrations
                     b.Navigation("Relatives");
 
                     b.Navigation("Sensors");
-
-                    b.Navigation("VitalSigns");
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.Sensor", b =>

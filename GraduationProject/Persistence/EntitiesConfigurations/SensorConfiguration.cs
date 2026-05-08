@@ -13,10 +13,10 @@
             builder.Property(x => x.Description)
                 .HasMaxLength(200);
 
+            // NOTE: no OnDelete here — Cascade is set in AppDbContext
             builder.HasOne(x => x.Patient)
                 .WithMany(x => x.Sensors)
-                .HasForeignKey(x => x.PatientId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.PatientId);
         }
     }
 }

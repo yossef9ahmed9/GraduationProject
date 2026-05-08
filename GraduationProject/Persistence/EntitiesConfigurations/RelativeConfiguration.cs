@@ -1,5 +1,4 @@
-﻿
-namespace GraduationProject.Presistence.EntitiesConfigurations
+﻿namespace GraduationProject.Presistence.EntitiesConfigurations
 {
     public class RelativeConfiguration : IEntityTypeConfiguration<Relative>
     {
@@ -18,10 +17,10 @@ namespace GraduationProject.Presistence.EntitiesConfigurations
                 .IsRequired()
                 .HasMaxLength(50);
 
+            // NOTE: no OnDelete here — Cascade is set in AppDbContext
             builder.HasOne(x => x.Patient)
                 .WithMany(x => x.Relatives)
-                .HasForeignKey(x => x.PatientId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.PatientId);
         }
     }
 }
