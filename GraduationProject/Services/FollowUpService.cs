@@ -14,6 +14,37 @@ namespace GraduationProject.Services
                 .ToListAsync(cancellationToken);
         }
 
+        public async Task<Result<FollowUpResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
+        {
+            var followUp = await _context.FollowUps
+                .AsNoTracking()
+                .Where(f => f.Id == id)
+                .ProjectToType<FollowUpResponse>()
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return followUp is null
+                ? Result.Failure<FollowUpResponse>(FollowUpErrors.FollowUpNotFound)
+                : Result.Success(followUp);
+        }
+
+        public async Task<IEnumerable<FollowUpResponse>> GetByPatientAsync(int patientId, CancellationToken cancellationToken = default)
+        {
+            return await _context.FollowUps
+                .AsNoTracking()
+                .Where(f => f.PatientId == patientId)
+                .ProjectToType<FollowUpResponse>()
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<IEnumerable<FollowUpResponse>> GetByDoctorAsync(int doctorId, CancellationToken cancellationToken = default)
+        {
+            return await _context.FollowUps
+                .AsNoTracking()
+                .Where(f => f.DoctorId == doctorId)
+                .ProjectToType<FollowUpResponse>()
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task<Result<FollowUpResponse>> AddAsync(FollowUpRequest request, CancellationToken cancellationToken = default)
         {
             var patientExists = await _context.Patients
@@ -34,6 +65,46 @@ namespace GraduationProject.Services
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success(followUp.Adapt<FollowUpResponse>());
+        }
+
+        public async Task<Result> UpdateAsync(int id, FollowUpRequest request, CancellationToken cancellationToken = default)
+        {
+            var followUp = await _context.FollowUps.FindAsync(new object[] { id }, cancellationToken);
+
+            if (followUp is null)
+                return Result.Failure(FollowUpErrors.FollowUpNotFound);
+
+            var patientExists = await _context.Patients
+                .AnyAsync(p => p.Id == request.PatientId, cancellationToken);
+
+            if (!patientExists)
+                return Result.Failure(FollowUpErrors.PatientNotFound);
+
+            var doctorExists = await _context.Doctors
+                .AnyAsync(d => d.Id == request.DoctorId, cancellationToken);
+
+            if (!doctorExists)
+                return Result.Failure(FollowUpErrors.DoctorNotFound);
+
+            request.Adapt(followUp);
+            followUp.LastUpdate = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
+
+        public async Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default)
+        {
+            var followUp = await _context.FollowUps.FindAsync(new object[] { id }, cancellationToken);
+
+            if (followUp is null)
+                return Result.Failure(FollowUpErrors.FollowUpNotFound);
+
+            _context.FollowUps.Remove(followUp);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
         }
     }
 }
