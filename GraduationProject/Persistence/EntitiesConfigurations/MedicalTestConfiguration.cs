@@ -12,7 +12,7 @@ namespace GraduationProject.Presistence.EntitiesConfigurations
                 .HasMaxLength(100);
 
             builder.Property(x => x.Result)
-                .HasMaxLength(500);
+                .HasMaxLength(4000);
 
             builder.Property(x => x.Date)
                 .IsRequired();
