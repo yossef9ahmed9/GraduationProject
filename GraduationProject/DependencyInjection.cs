@@ -33,6 +33,8 @@ namespace GraduationProject
             services.AddScoped<ISensorService, SensorService>();
             services.AddScoped<IVitalSignsService, VitalSignsService>();
             services.AddScoped<IFollowUpService, FollowUpService>();
+            services.AddScoped<ILabService, LabService>();
+            services.AddScoped<IMedicalTestService, MedicalTestService>();
             services.AddScoped<IFileService, FileService>();
             services.AddScoped<IOcrService, OcrService>();
             services.AddScoped<IAnalysisService, AnalysisService>();
