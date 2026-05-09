@@ -5,6 +5,8 @@
         string TreatmentPlan,
         string Notes,
         int PatientId,
-        int DoctorId
+        int DoctorId,
+        string Severity = "Low",
+        DateTime? NextVisitDate = null
     );
 }
