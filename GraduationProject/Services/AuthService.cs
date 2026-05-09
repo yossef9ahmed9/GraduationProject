@@ -45,11 +45,22 @@ namespace GraduationProject.Services
                 token, expiresIn * 60, refreshToken));
         }
 
-        public async Task<Result<AuthResponse?>> RegisterAsync(
-            RegisterRequest request,
+        // UPDATED: replaced single RegisterAsync with separate methods per role
+        // each method creates the identity user + the matching entity record
+        // no more big if/else chain based on role string
+
+        // NEW: register a patient — creates ApplicationUser + Patient entity
+        public async Task<Result<AuthResponse?>> RegisterPatientAsync(
+            PatientRegisterRequest request,
             CancellationToken cancellationToken = default)
         {
-            // create the identity user
+            // check no duplicate patient email in the Patients table
+            var exists = await _context.Patients
+                .AnyAsync(p => p.Email == request.Email, cancellationToken);
+
+            if (exists)
+                return Result.Failure<AuthResponse>(PatientErrors.DuplicatedPatient);
+
             var user = new ApplicationUser
             {
                 FullName = request.FullName,
@@ -62,18 +73,181 @@ namespace GraduationProject.Services
             if (!result.Succeeded)
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
 
-            // assign role
-            await _userManager.AddToRoleAsync(user, request.Role);
+            // assign the Patient role
+            await _userManager.AddToRoleAsync(user, "Patient");
 
-            // NEW: create the matching entity record based on role
-            var entityResult = await CreateRoleEntityAsync(request, cancellationToken);
-            if (!entityResult.IsSuccess)
+            // create the Patient entity record
+            var patient = new Patient
             {
-                // NEW: if entity creation fails, delete the user we just made to keep data clean
-                await _userManager.DeleteAsync(user);
-                return Result.Failure<AuthResponse>(entityResult.Error);
-            }
+                Name = request.FullName,
+                Email = request.Email,
+                Gender = request.Gender,
+                Phone = request.Phone,
+                Address = request.Address,
+                BirthDate = request.BirthDate,
+                MedicalRecord = request.MedicalRecord,
+                   // UPDATED: defaulted to Unknown so patient can update it later
+                // via PUT /api/patients/{id}
+                BloodType = "Unknown"
+            };
 
+            await _context.Patients.AddAsync(patient, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return await GenerateAuthResponseAsync(user);
+        }
+
+        // NEW: register a doctor — creates ApplicationUser + Doctor entity
+        public async Task<Result<AuthResponse?>> RegisterDoctorAsync(
+            DoctorRegisterRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            // check no duplicate doctor email in the Doctors table
+            var exists = await _context.Doctors
+                .AnyAsync(d => d.Email == request.Email, cancellationToken);
+
+            if (exists)
+                return Result.Failure<AuthResponse>(DoctorErors.DuplicatedDoctor);
+
+            var user = new ApplicationUser
+            {
+                FullName = request.FullName,
+                Email = request.Email,
+                UserName = request.Email
+            };
+
+            var result = await _userManager.CreateAsync(user, request.Password);
+
+            if (!result.Succeeded)
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+
+            // assign the Doctor role
+            await _userManager.AddToRoleAsync(user, "Doctor");
+
+            // create the Doctor entity record
+            var doctor = new Doctor
+            {
+                Name = request.FullName,
+                Email = request.Email,
+                Phone = request.Phone,
+                Specialization = request.Specialization
+            };
+
+            await _context.Doctors.AddAsync(doctor, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return await GenerateAuthResponseAsync(user);
+        }
+
+        // NEW: register a lab — creates ApplicationUser + Lab entity
+        public async Task<Result<AuthResponse?>> RegisterLabAsync(
+            LabRegisterRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            // labs use LabName as display name since they have no FullName field
+            var user = new ApplicationUser
+            {
+                FullName = request.LabName,
+                Email = request.Email,
+                UserName = request.Email
+            };
+
+            var result = await _userManager.CreateAsync(user, request.Password);
+
+            if (!result.Succeeded)
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+
+            // assign the Lab role
+            await _userManager.AddToRoleAsync(user, "Lab");
+
+            // create the Lab entity record
+            var lab = new Lab
+            {
+                Name = request.LabName,
+                Location = request.Location,
+                Phone = request.Phone
+            };
+
+            await _context.Labs.AddAsync(lab, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return await GenerateAuthResponseAsync(user);
+        }
+
+        // NEW: register a relative — creates ApplicationUser + Relative entity
+        public async Task<Result<AuthResponse?>> RegisterRelativeAsync(
+            RelativeRegisterRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var user = new ApplicationUser
+            {
+                FullName = request.FullName,
+                Email = request.Email,
+                UserName = request.Email
+            };
+
+            var result = await _userManager.CreateAsync(user, request.Password);
+
+            if (!result.Succeeded)
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+
+            // assign the Relative role
+            await _userManager.AddToRoleAsync(user, "Relative");
+
+            // create the Relative entity record
+            var relative = new Relative
+            {
+                Name = request.FullName,
+                Phone = request.Phone,
+                RelationType = request.RelationType,
+                PatientId = request.PatientId
+            };
+
+            await _context.Relatives.AddAsync(relative, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return await GenerateAuthResponseAsync(user);
+        }
+
+        // NEW: register an ambulance — creates ApplicationUser + Ambulance entity
+        public async Task<Result<AuthResponse?>> RegisterAmbulanceAsync(
+            AmbulanceRegisterRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            // ambulances use StationName as display name since they have no FullName field
+            var user = new ApplicationUser
+            {
+                FullName = request.StationName,
+                Email = request.Email,
+                UserName = request.Email
+            };
+
+            var result = await _userManager.CreateAsync(user, request.Password);
+
+            if (!result.Succeeded)
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+
+            // assign the Ambulance role
+            await _userManager.AddToRoleAsync(user, "Ambulance");
+
+            // create the Ambulance entity record
+            var ambulance = new Ambulance
+            {
+                StationName = request.StationName,
+                Phone = request.Phone,
+                AvailabilityStatus = request.AvailabilityStatus
+            };
+
+            await _context.Ambulances.AddAsync(ambulance, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return await GenerateAuthResponseAsync(user);
+        }
+
+        // NEW: private helper — generates the JWT + refresh token after any successful registration
+        // extracted to avoid repeating the same 10 lines in every register method
+        private async Task<Result<AuthResponse?>> GenerateAuthResponseAsync(ApplicationUser user)
+        {
             var roles = await _userManager.GetRolesAsync(user);
             var (token, expiresIn) = _JwtProvider.GenerateToken(user, roles);
 
@@ -91,102 +265,6 @@ namespace GraduationProject.Services
             return Result.Success(new AuthResponse(
                 user.Id, user.FullName, user.Email,
                 token, expiresIn * 60, refreshToken));
-        }
-
-        // NEW: creates the actual entity record depending on the role
-        private async Task<Result> CreateRoleEntityAsync(
-            RegisterRequest request,
-            CancellationToken cancellationToken)
-        {
-            var role = request.Role.ToLower();
-
-            if (role == "patient")
-            {
-                // NEW: check no duplicate patient email
-                var exists = await _context.Patients
-                    .AnyAsync(p => p.Email == request.Email, cancellationToken);
-
-                if (exists)
-                    return Result.Failure(PatientErrors.DuplicatedPatient);
-
-                // NEW: create Patient record from registration data
-                var patient = new Patient
-                {
-                    Name = request.FullName,
-                    Email = request.Email,
-                    Gender = request.Gender!,
-                    Phone = request.Phone!,
-                    Address = request.Address!,
-                    BirthDate = request.BirthDate!.Value,
-                    MedicalRecord = request.MedicalRecord!
-                };
-
-                await _context.Patients.AddAsync(patient, cancellationToken);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            else if (role == "doctor")
-            {
-                // NEW: check no duplicate doctor email
-                var exists = await _context.Doctors
-                    .AnyAsync(d => d.Email == request.Email, cancellationToken);
-
-                if (exists)
-                    return Result.Failure(DoctorErors.DuplicatedDoctor);
-
-                // NEW: create Doctor record from registration data
-                var doctor = new Doctor
-                {
-                    Name = request.FullName,
-                    Email = request.Email,
-                    Phone = request.Phone!,
-                    Specialization = request.Specialization!
-                };
-
-                await _context.Doctors.AddAsync(doctor, cancellationToken);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            else if (role == "lab")
-            {
-                // NEW: create Lab record from registration data
-                var lab = new Lab
-                {
-                    Name = request.LabName!,
-                    Location = request.Location!,
-                    Phone = request.Phone!
-                };
-
-                await _context.Labs.AddAsync(lab, cancellationToken);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            else if (role == "relative")
-            {
-                // NEW: create Relative record from registration data
-                var relative = new Relative
-                {
-                    Name = request.FullName,
-                    Phone = request.Phone!,
-                    RelationType = request.RelationType!,
-                    PatientId = request.PatientId!.Value
-                };
-
-                await _context.Relatives.AddAsync(relative, cancellationToken);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            else if (role == "ambulance")
-            {
-                // NEW: create Ambulance record from registration data
-                var ambulance = new Ambulance
-                {
-                    StationName = request.StationName!,
-                    Phone = request.Phone!,
-                    AvailabilityStatus = request.AvailabilityStatus!
-                };
-
-                await _context.Ambulances.AddAsync(ambulance, cancellationToken);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-
-            return Result.Success();
         }
 
         public async Task<Result<AuthResponse?>> RefreshTokenAsync(string token)
