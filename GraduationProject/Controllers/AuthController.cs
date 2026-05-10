@@ -22,16 +22,57 @@
                 : authenticationResult.ToProblem();
         }
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register(
-            RegisterRequest request,
+        // UPDATED: replaced single /register endpoint with one endpoint per role
+        // frontend calls the specific endpoint based on the role the user selected
+        // each endpoint only accepts the exact fields needed for that role
+
+        // NEW: POST /api/auth/register/patient
+        [HttpPost("register/patient")]
+        public async Task<IActionResult> RegisterPatient(
+            PatientRegisterRequest request,
             CancellationToken cancellationToken)
         {
-            var result =
-                await _authenticationService.RegisterAsync(
-                    request,
-                    cancellationToken);
+            var result = await _authenticationService.RegisterPatientAsync(request, cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
+        }
 
+        // NEW: POST /api/auth/register/doctor
+        [HttpPost("register/doctor")]
+        public async Task<IActionResult> RegisterDoctor(
+            DoctorRegisterRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _authenticationService.RegisterDoctorAsync(request, cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
+        }
+
+        // NEW: POST /api/auth/register/lab
+        [HttpPost("register/lab")]
+        public async Task<IActionResult> RegisterLab(
+            LabRegisterRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _authenticationService.RegisterLabAsync(request, cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
+        }
+
+        // NEW: POST /api/auth/register/relative
+        [HttpPost("register/relative")]
+        public async Task<IActionResult> RegisterRelative(
+            RelativeRegisterRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _authenticationService.RegisterRelativeAsync(request, cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
+        }
+
+        // NEW: POST /api/auth/register/ambulance
+        [HttpPost("register/ambulance")]
+        public async Task<IActionResult> RegisterAmbulance(
+            AmbulanceRegisterRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _authenticationService.RegisterAmbulanceAsync(request, cancellationToken);
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
@@ -45,8 +86,6 @@
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
-        // NEW: call this with the user's email to get a reset token
-        // in production this token would be sent via email instead of returned here
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request)
         {
@@ -57,7 +96,6 @@
                 : result.ToProblem();
         }
 
-        // NEW: call this with the token from forgot-password + new password to reset
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword(ResetPasswordRequest request)
         {
