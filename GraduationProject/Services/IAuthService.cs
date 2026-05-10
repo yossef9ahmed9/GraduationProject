@@ -7,16 +7,32 @@
             string password,
             CancellationToken cancellationToken = default);
 
-        Task<Result<AuthResponse?>> RegisterAsync(
-            RegisterRequest request,
+        // UPDATED: replaced single RegisterAsync with one method per role
+        // each method only accepts the fields that role actually needs
+        Task<Result<AuthResponse?>> RegisterPatientAsync(
+            PatientRegisterRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<Result<AuthResponse?>> RegisterDoctorAsync(
+            DoctorRegisterRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<Result<AuthResponse?>> RegisterLabAsync(
+            LabRegisterRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<Result<AuthResponse?>> RegisterRelativeAsync(
+            RelativeRegisterRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<Result<AuthResponse?>> RegisterAmbulanceAsync(
+            AmbulanceRegisterRequest request,
             CancellationToken cancellationToken = default);
 
         Task<Result<AuthResponse?>> RefreshTokenAsync(string token);
 
-        // NEW: forgot password - returns a reset token
         Task<Result<string>> ForgotPasswordAsync(string email);
 
-        // NEW: reset password using the token from forgot password
         Task<Result> ResetPasswordAsync(ResetPasswordRequest request);
     }
 }
