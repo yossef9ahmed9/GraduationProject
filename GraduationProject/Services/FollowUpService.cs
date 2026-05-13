@@ -23,5 +23,24 @@ namespace GraduationProject.Services
 
             return Result.Success(followUp.Adapt<FollowUpResponse>());
         }
+        public async Task<IEnumerable<FollowUpResponse>> GetByDoctorAsync(
+             int doctorId, CancellationToken cancellationToken = default)
+        {
+            return await _context.FollowUps
+                .AsNoTracking()
+                .Where(f => f.DoctorId == doctorId)
+                .ProjectToType<FollowUpResponse>()
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<IEnumerable<FollowUpResponse>> GetByPatientAsync(
+            int patientId, CancellationToken cancellationToken = default)
+        {
+            return await _context.FollowUps
+                .AsNoTracking()
+                .Where(f => f.PatientId == patientId)
+                .ProjectToType<FollowUpResponse>()
+                .ToListAsync(cancellationToken);
+        }
     }
 }
