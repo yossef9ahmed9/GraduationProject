@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class MedicalTest
+    public class MedicalTest : ISoftDeletable
     {
         public int Id { get; set; }
 
@@ -17,5 +17,8 @@
         public int LabId { get; set; }
 
         public Lab Lab { get; set; } = default!;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
     }
 }

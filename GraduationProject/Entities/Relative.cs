@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class Relative
+    public class Relative : ISoftDeletable
     {
         public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
@@ -15,5 +15,8 @@
 
         public int PatientId { get; set; }
         public Patient Patient { get; set; } = default!;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
     }
 }

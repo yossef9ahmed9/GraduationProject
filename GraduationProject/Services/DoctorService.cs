@@ -70,7 +70,8 @@ namespace GraduationProject.Services
             if (doctor == null)
                 return Result.Failure(DoctorErors.DoctorNotFound);
 
-            _context.Doctors.Remove(doctor);
+            doctor.IsDeleted = true;
+            doctor.DeletedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

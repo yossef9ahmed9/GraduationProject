@@ -11,8 +11,8 @@ public static class UserErrors
     public static readonly Error InvalidRefreshToken =
         new("User.InvalidRefreshToken", "Invalid refresh token", StatusCodes.Status401Unauthorized);
 
-    public static readonly Error RegistrationFailed =
-        new("User.RegistrationFailed", "Registration failed", StatusCodes.Status400BadRequest);
+    public static Error RegistrationFailed(string details = "Registration failed") =>
+        new("User.RegistrationFailed", details, StatusCodes.Status400BadRequest);
 
     // NEW: error for when email is not found during forgot password
     public static readonly Error EmailNotFound =

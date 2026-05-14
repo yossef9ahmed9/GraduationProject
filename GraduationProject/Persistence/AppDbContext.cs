@@ -1,4 +1,6 @@
-﻿namespace GraduationProject.Presistence
+﻿using System.Linq.Expressions;
+
+namespace GraduationProject.Presistence
 {
     public class AppDbContext(DbContextOptions<AppDbContext> options)
         : IdentityDbContext<ApplicationUser>(options)
@@ -80,6 +82,20 @@
             // Sensor deleted → Restrict VitalSigns (patient cascade covers this already)
             // we leave this as Restrict from the global rule above
             // so if sensor deleted alone, it wont delete vitals by accident
+
+            // Soft delete global filter — applies to every entity that implements ISoftDeletable
+            // any query automatically excludes deleted records unless you explicitly use IgnoreQueryFilters()
+            foreach (var entityType in modelBuilder.Model
+                .GetEntityTypes()
+                .Where(e => typeof(ISoftDeletable).IsAssignableFrom(e.ClrType)))
+            {
+                var parameter = Expression.Parameter(entityType.ClrType, "e");
+                var isDeletedProperty = Expression.Property(parameter, nameof(ISoftDeletable.IsDeleted));
+                var notExpression = Expression.Not(isDeletedProperty);
+                var lambda = Expression.Lambda(notExpression, parameter);
+
+                modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
+            }
 
             // User deleted → delete their RefreshTokens
             modelBuilder.Entity<RefreshToken>()

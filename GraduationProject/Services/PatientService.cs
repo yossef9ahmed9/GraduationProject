@@ -74,7 +74,8 @@ namespace GraduationProject.Services
             {
                 return Result.Failure(PatientErrors.PatientNotFound);
             }
-            _context.Patients.Remove(patient);
+            patient.IsDeleted = true;
+            patient.DeletedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
             return Result.Success();
         }

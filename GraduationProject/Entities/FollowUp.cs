@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class FollowUp
+    public class FollowUp : ISoftDeletable
     {
         public int Id { get; set; }
         public string Diagnosis { get; set; } = string.Empty;
@@ -20,5 +20,8 @@
 
         public int DoctorId { get; set; }
         public Doctor Doctor { get; set; } = default!;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
     }
 }

@@ -101,7 +101,8 @@ namespace GraduationProject.Services
             if (followUp is null)
                 return Result.Failure(FollowUpErrors.FollowUpNotFound);
 
-            _context.FollowUps.Remove(followUp);
+            followUp.IsDeleted = true;
+            followUp.DeletedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

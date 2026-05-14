@@ -44,7 +44,8 @@ namespace GraduationProject.Services
             if (sensor == null)
                 return Result.Failure(SensorErrors.SensorNotFound);
 
-            _context.Sensors.Remove(sensor);
+            sensor.IsDeleted = true;
+            sensor.DeletedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

@@ -100,7 +100,8 @@ namespace GraduationProject.Services
             if (test is null)
                 return Result.Failure(MedicalTestErrors.MedicalTestNotFound);
 
-            _context.MedicalTests.Remove(test);
+            test.IsDeleted = true;
+            test.DeletedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();
