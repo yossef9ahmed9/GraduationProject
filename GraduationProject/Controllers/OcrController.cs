@@ -47,7 +47,10 @@ namespace GraduationProject.Controllers
                     patientId.Value,
                     labId.Value);
 
-                var saveResult = await _medicalTestService.AddAsync(request);
+                // UPDATED: was missing CancellationToken — passing CancellationToken.None here
+                // because the cancellation token from the action isn't easily threaded through
+                // the local variable scope in this method without refactoring the whole flow
+                var saveResult = await _medicalTestService.AddAsync(request, CancellationToken.None);
 
                 if (saveResult.IsSuccess)
                     createdTest = saveResult.Value;

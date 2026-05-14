@@ -1,10 +1,14 @@
-﻿
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 
 namespace GraduationProject.Authentication
 {
-    public class JwtProvider : IJwtProvider
+    // UPDATED: now reads JWT settings from JwtOptions (appsettings.json)
+    // instead of having the key, issuer, audience, and expiry hardcoded here
+    // JwtOptions is injected via IOptions<JwtOptions> — registered in DependencyInjection.cs
+    public class JwtProvider(IOptions<JwtOptions> options) : IJwtProvider
     {
+        private readonly JwtOptions _options = options.Value;
+
         // UPDATED: added IList<string> roles parameter
         public (string token, int expireIn) GenerateToken(ApplicationUser user, IList<string> roles)
         {
@@ -21,29 +25,29 @@ namespace GraduationProject.Authentication
             foreach (var role in roles)
                 claims.Add(new Claim(ClaimTypes.Role, role));
 
+            // UPDATED: key now comes from _options.Key instead of being hardcoded
             var symmetricSecurityKey =
                 new SymmetricSecurityKey(
-                    Encoding.UTF8.GetBytes(
-                        "7lxKQWrP1jN54i6/ns6eQp0oNdKSNDOLyuids0kxoVI="));
+                    Encoding.UTF8.GetBytes(_options.Key));
 
             var signingCredentials =
                 new SigningCredentials(
                     symmetricSecurityKey,
                     SecurityAlgorithms.HmacSha256);
 
-            var expiresin = 30;
-
+            // UPDATED: issuer, audience, and expiry now come from _options
+            // changing them in appsettings.json is enough — no code change needed
             var token = new JwtSecurityToken(
-                issuer: "GraduationProjectApp",
-                audience: "GraduationProject users",
+                issuer: _options.Issuer,
+                audience: _options.Audience,
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(expiresin),
+                expires: DateTime.UtcNow.AddMinutes(_options.ExpiryMinutes),
                 signingCredentials: signingCredentials
             );
 
             return (
                 token: new JwtSecurityTokenHandler().WriteToken(token),
-                expireIn: expiresin
+                expireIn: _options.ExpiryMinutes
             );
         }
 
