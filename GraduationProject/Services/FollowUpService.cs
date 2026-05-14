@@ -66,7 +66,6 @@ namespace GraduationProject.Services
 
             return Result.Success(followUp.Adapt<FollowUpResponse>());
         }
-
         public async Task<Result> UpdateAsync(int id, FollowUpRequest request, CancellationToken cancellationToken = default)
         {
             var followUp = await _context.FollowUps.FindAsync(new object[] { id }, cancellationToken);

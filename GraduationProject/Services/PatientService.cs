@@ -29,7 +29,7 @@ namespace GraduationProject.Services
         //        //}   المشكله هنا ان لو الليست فاضى الكود هيشخرلى 
 
         
-            public async Task<Result<PatientResponse>> AddPatientAsync( PatientRequest request,CancellationToken cancellationToken = default)
+        public async Task<Result<PatientResponse>> AddPatientAsync( PatientRequest request,CancellationToken cancellationToken = default)
         {
             var exists = await _context.Patients
                 .AnyAsync(p => p.Email == request.Email , cancellationToken);
@@ -38,6 +38,11 @@ namespace GraduationProject.Services
                 return Result.Failure<PatientResponse>(PatientErrors.DuplicatedPatient);
 
             var newPatient = request.Adapt<Patient>();
+
+            // UPDATED: normalize gender to lowercase before saving
+            // the DB check constraint is: Gender IN ('male','female') — lowercase only
+            // without this, inserting "Male" or "Female" from the request would throw a DB error
+            newPatient.Gender = request.Gender.ToLower();
 
             await _context.Patients.AddAsync(newPatient, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
@@ -61,6 +66,10 @@ namespace GraduationProject.Services
                 return Result.Failure(PatientErrors.DuplicatedPatient);
 
             request.Adapt(patient);
+
+            // UPDATED: normalize gender to lowercase after Adapt overwrites it
+            // Adapt copies Gender as-is from the request, so we re-apply the lowercase fix here
+            patient.Gender = request.Gender.ToLower();
 
             await _context.SaveChangesAsync(cancellationToken);
 
