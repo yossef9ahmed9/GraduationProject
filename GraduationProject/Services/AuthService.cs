@@ -161,7 +161,7 @@ namespace GraduationProject.Services
             // identity layer with a generic error instead of a clean response
             var userExists = await _userManager.FindByEmailAsync(request.Email);
             if (userExists is not null)
-                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed("Email already exists"));
 
             // labs use LabName as display name since they have no FullName field
             var user = new ApplicationUser
@@ -263,7 +263,10 @@ namespace GraduationProject.Services
             {
                 StationName = request.StationName,
                 Phone = request.Phone,
-                AvailabilityStatus = request.AvailabilityStatus
+                AvailabilityStatus = request.AvailabilityStatus,
+                LicensePlate = request.LicensePlate ?? "",
+                DriverName = request.DriverName ?? "",
+                DriverPhone = request.DriverPhone ?? ""
             };
 
             await _context.Ambulances.AddAsync(ambulance, cancellationToken);

@@ -174,17 +174,14 @@ namespace GraduationProject.Services
             if (!patient.Latitude.HasValue || !patient.Longitude.HasValue)
                 return available.First();
 
-            // NEW: rank by straight-line distance using Haversine formula.
-            // This is computed in memory (not SQL) because EF Core cannot translate
-            // the Math.Sin/Math.Cos calls to SQL Server. The result set of available
-            // ambulances is expected to be small (< 100), so this is fine.
-            return available
+            var withGps = available
+                .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
                 .OrderBy(a => HaversineDistance(
-                    patient.Latitude.Value,
-                    patient.Longitude.Value,
-                    a.Latitude  ?? double.MaxValue,
-                    a.Longitude ?? double.MaxValue))
-                .First();
+                    patient.Latitude.Value, patient.Longitude.Value,
+                    a.Latitude!.Value, a.Longitude!.Value))
+                .ToList();
+
+            return withGps.Count > 0 ? withGps.First() : available.First();
         }
 
         // NEW: Haversine formula — returns the great-circle distance in kilometres

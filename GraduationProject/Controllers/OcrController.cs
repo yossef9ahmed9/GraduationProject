@@ -6,7 +6,7 @@ namespace GraduationProject.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-   // [Authorize]
+   [Authorize]
     public class OcrController(
         IFileService fileService,
         IOcrService ocrService,
@@ -22,7 +22,8 @@ namespace GraduationProject.Controllers
         public async Task<IActionResult> Upload(
             IFormFile image,
             [FromQuery] int? patientId = null,
-            [FromQuery] int? labId = null)
+            [FromQuery] int? labId = null,
+            CancellationToken cancellationToken = default)
         {
             if (image == null || image.Length == 0)
                 return BadRequest("Invalid image");
@@ -47,10 +48,7 @@ namespace GraduationProject.Controllers
                     patientId.Value,
                     labId.Value);
 
-                // UPDATED: was missing CancellationToken — passing CancellationToken.None here
-                // because the cancellation token from the action isn't easily threaded through
-                // the local variable scope in this method without refactoring the whole flow
-                var saveResult = await _medicalTestService.AddAsync(request, CancellationToken.None);
+                var saveResult = await _medicalTestService.AddAsync(request, cancellationToken);
 
                 if (saveResult.IsSuccess)
                     createdTest = saveResult.Value;

@@ -5,6 +5,8 @@
         string Name,
         string Phone,
         string RelationType,
-        int PatientId
+        int PatientId,
+        string? Email,
+        bool IsPrimaryContact
     );
 }

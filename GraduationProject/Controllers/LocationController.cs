@@ -211,30 +211,33 @@ namespace GraduationProject.Controllers
             if (!available.Any())
                 return Ok(new List<AmbulanceLocationResponse>());
 
-            // NEW: rank by distance, take the top N
-            var nearest = available
-                .Select(a => new
-                {
-                    Ambulance = a,
-                    // NEW: ambulances without GPS go to the bottom of the list
-                    Distance = (a.Latitude.HasValue && a.Longitude.HasValue)
-                        ? HaversineDistance(lat, lng, a.Latitude.Value, a.Longitude.Value)
-                        : double.MaxValue
-                })
-                .OrderBy(x => x.Distance)
+            var withGps = available
+                .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
+                .OrderBy(a => HaversineDistance(lat, lng, a.Latitude!.Value, a.Longitude!.Value))
                 .Take(count)
-                .Select(x => new AmbulanceLocationResponse(
-                    x.Ambulance.Id,
-                    x.Ambulance.StationName,
-                    x.Ambulance.AvailabilityStatus,
-                    x.Ambulance.Latitude,
-                    x.Ambulance.Longitude,
-                    x.Ambulance.LastLocationUpdate,
-                    DistanceFromPatientKm: x.Distance == double.MaxValue
-                        ? null
-                        : Math.Round(x.Distance, 2)
-                ))
+                .Select(a => new AmbulanceLocationResponse(
+                    a.Id, a.StationName, a.AvailabilityStatus,
+                    a.Latitude, a.Longitude, a.LastLocationUpdate,
+                    DistanceFromPatientKm: Math.Round(HaversineDistance(
+                        lat, lng, a.Latitude!.Value, a.Longitude!.Value), 2)))
                 .ToList();
+
+            var remaining = count - withGps.Count;
+            if (remaining > 0)
+            {
+                var withoutGps = available
+                    .Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue)
+                    .Take(remaining)
+                    .Select(a => new AmbulanceLocationResponse(
+                        a.Id, a.StationName, a.AvailabilityStatus,
+                        a.Latitude, a.Longitude, a.LastLocationUpdate,
+                        DistanceFromPatientKm: null))
+                    .ToList();
+
+                withGps.AddRange(withoutGps);
+            }
+
+            var nearest = withGps;
 
             return Ok(nearest);
         }
