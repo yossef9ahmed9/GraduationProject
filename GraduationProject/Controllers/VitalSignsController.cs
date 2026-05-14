@@ -4,6 +4,9 @@ namespace GraduationProject.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    // UPDATED: added [Authorize] — this was the only controller missing it
+    // anyone could POST fake vital signs without a token before this fix
+    [Authorize]
     public class VitalSignsController(IVitalSignsService service) : ControllerBase
     {
         private readonly IVitalSignsService _service = service;
