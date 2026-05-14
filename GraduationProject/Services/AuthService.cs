@@ -84,12 +84,18 @@ namespace GraduationProject.Services
             {
                 Name = request.FullName,
                 Email = request.Email,
-                Gender = request.Gender,
+
+                // UPDATED: normalize gender to lowercase before saving
+                // the DB check constraint requires 'male' or 'female' — lowercase only
+                // without this the insert throws a DB check constraint violation
+                Gender = request.Gender.ToLower(),
+
                 Phone = request.Phone,
                 Address = request.Address,
                 BirthDate = request.BirthDate,
                 MedicalRecord = request.MedicalRecord,
-                   // UPDATED: defaulted to Unknown so patient can update it later
+
+                // UPDATED: defaulted to Unknown so patient can update it later
                 // via PUT /api/patients/{id}
                 BloodType = "Unknown"
             };
@@ -150,6 +156,13 @@ namespace GraduationProject.Services
             LabRegisterRequest request,
             CancellationToken cancellationToken = default)
         {
+            // UPDATED: added duplicate email check — this was missing entirely before
+            // without it, registering a lab with an existing email would crash on the
+            // identity layer with a generic error instead of a clean response
+            var userExists = await _userManager.FindByEmailAsync(request.Email);
+            if (userExists is not null)
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+
             // labs use LabName as display name since they have no FullName field
             var user = new ApplicationUser
             {

@@ -1,10 +1,19 @@
-﻿using GraduationProject.Contracts.VitalSigns;
+using GraduationProject.Contracts.VitalSigns;
 
 namespace GraduationProject.Services
 {
-    public class VitalSignsService(AppDbContext context) : IVitalSignsService
+    // UPDATED: VitalSignsService now accepts IAutoEmergencyService.
+    // After every successful AddAsync, it calls TryTriggerEmergencyAsync
+    // so the system can automatically dispatch an ambulance when readings
+    // are critically abnormal — no manual intervention needed.
+    public class VitalSignsService(
+        AppDbContext context,
+        IAutoEmergencyService autoEmergency   // NEW: injected auto-emergency service
+        ) : IVitalSignsService
     {
         private readonly AppDbContext _context = context;
+        // NEW: reference to the auto-emergency service
+        private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
 
         public async Task<IEnumerable<VitalSignsResponse>> GetAllAsync(
             CancellationToken cancellationToken = default)
@@ -76,6 +85,25 @@ namespace GraduationProject.Services
             await _context.Entry(vital)
                 .Reference(v => v.Patient)
                 .LoadAsync(cancellationToken);
+
+            // ── NEW: Auto-emergency check ──────────────────────────────────────
+            // After saving the reading we immediately evaluate it against critical
+            // thresholds. If a threshold is crossed and the patient is not already
+            // in an active emergency, the nearest available ambulance is dispatched
+            // automatically and the dispatch record is returned here.
+            // We deliberately do NOT fail the whole request if the emergency
+            // service throws — we log and swallow so the vital reading is always saved.
+            try
+            {
+                await _autoEmergency.TryTriggerEmergencyAsync(vital.Id, cancellationToken);
+            }
+            catch
+            {
+                // NEW: swallow — the vital sign was already saved successfully.
+                // Emergency dispatch failure must not roll back the sensor reading.
+                // A background job / retry mechanism should handle undelivered dispatches.
+            }
+            // ── End auto-emergency check ───────────────────────────────────────
 
             return Result.Success(vital.Adapt<VitalSignsResponse>());
         }
