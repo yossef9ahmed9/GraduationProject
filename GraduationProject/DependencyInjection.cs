@@ -53,11 +53,8 @@ namespace GraduationProject
 
         private static IServiceCollection AddSwaggerConfig(this IServiceCollection services)
         {
-
-            //swagger
             services.AddEndpointsApiExplorer();
             services.AddSwaggerGen();
-
 
             return services;
         }

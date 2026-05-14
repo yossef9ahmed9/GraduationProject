@@ -71,7 +71,10 @@ namespace GraduationProject.Services
             var result = await _userManager.CreateAsync(user, request.Password);
 
             if (!result.Succeeded)
-                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+            {
+                var errors = string.Join("; ", result.Errors.Select(e => e.Description));
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
+            }
 
             // assign the Patient role
             await _userManager.AddToRoleAsync(user, "Patient");
@@ -119,7 +122,10 @@ namespace GraduationProject.Services
             var result = await _userManager.CreateAsync(user, request.Password);
 
             if (!result.Succeeded)
-                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+            {
+                var errors = string.Join("; ", result.Errors.Select(e => e.Description));
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
+            }
 
             // assign the Doctor role
             await _userManager.AddToRoleAsync(user, "Doctor");
@@ -155,7 +161,10 @@ namespace GraduationProject.Services
             var result = await _userManager.CreateAsync(user, request.Password);
 
             if (!result.Succeeded)
-                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+            {
+                var errors = string.Join("; ", result.Errors.Select(e => e.Description));
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
+            }
 
             // assign the Lab role
             await _userManager.AddToRoleAsync(user, "Lab");
@@ -189,7 +198,10 @@ namespace GraduationProject.Services
             var result = await _userManager.CreateAsync(user, request.Password);
 
             if (!result.Succeeded)
-                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+            {
+                var errors = string.Join("; ", result.Errors.Select(e => e.Description));
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
+            }
 
             // assign the Relative role
             await _userManager.AddToRoleAsync(user, "Relative");
@@ -225,7 +237,10 @@ namespace GraduationProject.Services
             var result = await _userManager.CreateAsync(user, request.Password);
 
             if (!result.Succeeded)
-                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed);
+            {
+                var errors = string.Join("; ", result.Errors.Select(e => e.Description));
+                return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
+            }
 
             // assign the Ambulance role
             await _userManager.AddToRoleAsync(user, "Ambulance");

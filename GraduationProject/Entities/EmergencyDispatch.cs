@@ -1,7 +1,7 @@
 ﻿namespace GraduationProject.Entities
 {
     // NEW FILE: tracks when an ambulance is dispatched to a patient emergency
-    public class EmergencyDispatch
+    public class EmergencyDispatch : ISoftDeletable
     {
         public int Id { get; set; }
 
@@ -30,5 +30,8 @@
 
         public int AmbulanceId { get; set; }
         public Ambulance Ambulance { get; set; } = default!;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
     }
 }

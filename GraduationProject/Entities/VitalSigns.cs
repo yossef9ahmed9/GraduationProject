@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class VitalSigns
+    public class VitalSigns : ISoftDeletable
     {
         public int Id { get; set; }
 
@@ -23,5 +23,8 @@
         // NEW: direct link to patient so we dont have to go through sensor every time
         public int PatientId { get; set; }
         public Patient Patient { get; set; } = default!;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
     }
 }

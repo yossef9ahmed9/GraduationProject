@@ -70,7 +70,8 @@ namespace GraduationProject.Services
             if (lab is null)
                 return Result.Failure(LabErrors.LabNotFound);
 
-            _context.Labs.Remove(lab);
+            lab.IsDeleted = true;
+            lab.DeletedAtUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

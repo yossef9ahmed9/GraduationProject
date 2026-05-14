@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class Doctor
+    public class Doctor : ISoftDeletable
     {
         public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
@@ -13,6 +13,9 @@
 
         // NEW: doctor availability for appointments
         public bool IsAvailable { get; set; } = true;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
 
         public ICollection<FollowUp> FollowUps { get; set; } = new List<FollowUp>();
     }

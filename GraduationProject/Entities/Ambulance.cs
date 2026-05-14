@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class Ambulance
+    public class Ambulance : ISoftDeletable
     {
         public int Id { get; set; }
         public string StationName { get; set; } = string.Empty;
@@ -16,6 +16,9 @@
         public string LicensePlate { get; set; } = string.Empty;
         public string DriverName { get; set; } = string.Empty;
         public string DriverPhone { get; set; } = string.Empty;
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
 
         // NEW: track which dispatches this ambulance handled
         public ICollection<EmergencyDispatch> EmergencyDispatches { get; set; }

@@ -1,6 +1,6 @@
 ﻿namespace GraduationProject.Entities
 {
-    public class Patient
+    public class Patient : ISoftDeletable
     {
         public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
@@ -17,6 +17,9 @@
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
         public DateTime? LastLocationUpdate { get; set; }
+
+        public bool IsDeleted { get; set; }
+        public DateTime? DeletedAtUtc { get; set; }
 
         public ICollection<Relative> Relatives { get; set; } = new List<Relative>();
         public ICollection<Sensor> Sensors { get; set; } = new List<Sensor>();
