@@ -92,7 +92,7 @@
             var result = await _authenticationService.ForgotPasswordAsync(request.Email);
 
             return result.IsSuccess
-                ? Ok(new { message = "Use this token to reset your password.", resetToken = result.Value })
+                ? Ok(new { message = "If the email exists, a reset link has been sent." })
                 : result.ToProblem();
         }
 

@@ -4,6 +4,8 @@
         int Id,
         string Type,
         string Description,
-        int PatientId
+        int PatientId,
+        bool IsActive,
+        DateTime? LastPing
     );
 }

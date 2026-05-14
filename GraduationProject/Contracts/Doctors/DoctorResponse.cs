@@ -5,6 +5,8 @@
         string Name,
         string Phone,
         string Email,
-        string Specialization
+        string Specialization,
+        string? HospitalName,
+        bool IsAvailable
     );
 }
