@@ -1,4 +1,4 @@
-﻿using GraduationProject.Contracts.EmergencyDispatches;
+using GraduationProject.Contracts.EmergencyDispatches;
 
 namespace GraduationProject.Services
 {
@@ -87,6 +87,13 @@ namespace GraduationProject.Services
             // mark ambulance as busy so it won't be dispatched twice
             ambulance.AvailabilityStatus = "Busy";
 
+            // NEW: also mark the patient as in an active emergency
+            // so the auto-emergency service won't double-dispatch for the same patient
+            var patient = await _context.Patients.FindAsync(
+                new object[] { request.PatientId }, cancellationToken);
+            if (patient is not null)
+                patient.IsInEmergency = true;
+
             await _context.EmergencyDispatches.AddAsync(dispatch, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
@@ -100,6 +107,7 @@ namespace GraduationProject.Services
         {
             var dispatch = await _context.EmergencyDispatches
                 .Include(e => e.Ambulance) // need ambulance to update availability on resolve
+                .Include(e => e.Patient)   // NEW: need patient to clear IsInEmergency
                 .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
 
             if (dispatch is null)
@@ -120,6 +128,10 @@ namespace GraduationProject.Services
 
                 // free the ambulance back up when the case is closed
                 dispatch.Ambulance.AvailabilityStatus = "Available";
+
+                // NEW: clear the patient's emergency flag so the auto-emergency service
+                // can trigger again if future vitals become critical
+                dispatch.Patient.IsInEmergency = false;
             }
 
             await _context.SaveChangesAsync(cancellationToken);

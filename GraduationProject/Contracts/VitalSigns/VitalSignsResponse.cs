@@ -1,4 +1,6 @@
-﻿namespace GraduationProject.Contracts.VitalSigns
+using GraduationProject.Contracts.EmergencyDispatches;
+
+namespace GraduationProject.Contracts.VitalSigns
 {
     public record VitalSignsResponse(
         int Id,
@@ -17,6 +19,12 @@
         double? OxygenSaturation,
         double? Temperature,
         int? RespiratoryRate,
-        double? BloodGlucose
+        double? BloodGlucose,
+
+        // NEW: if this reading triggered an automatic emergency dispatch,
+        // the dispatch summary is included here so the frontend can
+        // immediately show the ambulance details without a second API call.
+        // Null when the reading was within safe thresholds.
+        EmergencyDispatchResponse? AutoDispatch
     );
 }

@@ -1,5 +1,3 @@
-﻿
-
 using GraduationProject.Services.OCR;
 
 namespace GraduationProject
@@ -40,6 +38,13 @@ namespace GraduationProject
             // UPDATED: registered EmergencyDispatchService — it had an entity, migrations,
             // and a DbSet but no service or controller wired up, making the whole feature unreachable
             services.AddScoped<IEmergencyDispatchService, EmergencyDispatchService>();
+
+            // NEW: registered AutoEmergencyService — evaluates each incoming vital-signs
+            // reading against critical thresholds and dispatches the nearest available
+            // ambulance automatically when values are dangerously abnormal.
+            // Registered as Scoped because it shares the same DbContext lifetime as the
+            // VitalSignsService that calls it.
+            services.AddScoped<IAutoEmergencyService, AutoEmergencyService>();
 
             // mapster
             var mapingConfig = TypeAdapterConfig.GlobalSettings;
