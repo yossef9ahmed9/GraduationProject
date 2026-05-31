@@ -35,14 +35,30 @@ namespace GraduationProject.Services.OCR
             text = PreprocessText(text);
             var tests = ExtractTests(text);
 
-            tests = EnsureCompleteTests(tests, text);
+            // NEW: validate BEFORE EnsureCompleteTests runs.
+            // EnsureCompleteTests pads every missing test with value=0, so checking
+            // for all-zeros after that call will always be true on a bad image.
+            // We must check the raw extracted list first:
+            //   - no tests at all  → OCR read nothing
+            //   - all tests are 0  → OCR found the test names but couldn't read the numbers
+            // Both cases mean the image is not a readable CBC report.
+            bool nothingExtracted = !tests.Any();
+            bool allExtractedAreZero = tests.Any() && tests.All(t => t.Value == 0);
 
-            if (!tests.Any())
+            if (nothingExtracted || allExtractedAreZero)
             {
-                result.Status = "Unknown";
-                result.Alerts.Add("No lab values detected");
+                result.Status = "InvalidScan";
+                result.IsValidScan = false;
+                result.Tests = new List<LabValue>();
+                result.Alerts = new List<string>
+                {
+                    "Could not extract any lab values from the image. " +
+                    "Please make sure the image is a clear, well-lit photo of a CBC lab report."
+                };
                 return result;
             }
+
+            tests = EnsureCompleteTests(tests, text);
 
             var alerts = new List<string>();
             var overallStatus = "Normal";
@@ -70,6 +86,7 @@ namespace GraduationProject.Services.OCR
             result.Tests = tests;
             result.Status = overallStatus;
             result.Alerts = alerts;
+            result.IsValidScan = true;
 
             return result;
         }

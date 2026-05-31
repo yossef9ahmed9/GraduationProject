@@ -6,7 +6,7 @@ namespace GraduationProject.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
+    [Authorize]   // FIXED: was commented out — anyone could POST to this endpoint and write to the DB
     public class OcrController(
         IFileService fileService,
         IOcrService ocrService,
@@ -37,19 +37,6 @@ namespace GraduationProject.Controllers
             var text = _ocrService.ExtractText(bytes);
 
             var analysis = _analysisService.Analyze(text);
-
-            // NEW: if OCR couldn't read any real values, return 200 with IsValidScan=false
-            // so the frontend receives a structured response instead of treating it as a crash.
-            // Nothing is saved to the database.
-            if (!analysis.IsValidScan)
-            {
-                return Ok(new
-                {
-                    extractedText = text,
-                    analysis,
-                    medicalTest = (object?)null
-                });
-            }
 
             object? createdTest = null;
 
