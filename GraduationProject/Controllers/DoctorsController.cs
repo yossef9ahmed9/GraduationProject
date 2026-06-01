@@ -10,9 +10,9 @@ namespace GraduationProject.Controllers
         private readonly IDoctorService _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetAllAsync(cancellationToken));
+            return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("{id}")]

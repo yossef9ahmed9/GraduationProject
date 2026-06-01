@@ -6,12 +6,12 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<DoctorResponse>> GetAllAsync(CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<DoctorResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.Doctors
                 .AsNoTracking()
                 .ProjectToType<DoctorResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         public async Task<Result<DoctorResponse>> GetAsync(int id, CancellationToken cancellationToken = default)

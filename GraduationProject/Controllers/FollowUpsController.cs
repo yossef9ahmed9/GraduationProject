@@ -14,9 +14,9 @@ namespace GraduationProject.Controllers
         private readonly AppDbContext _context = context;
 
         [HttpGet]
-        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetAllAsync(cancellationToken));
+            return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("{id}")]
@@ -30,7 +30,7 @@ namespace GraduationProject.Controllers
         }
 
         [HttpGet("doctor")]
-        public async Task<IActionResult> GetForDoctor(CancellationToken cancellationToken)
+        public async Task<IActionResult> GetForDoctor([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
             var email = User.FindFirstValue(ClaimTypes.Email)
                         ?? User.FindFirstValue(JwtRegisteredClaimNames.Email);
@@ -45,19 +45,19 @@ namespace GraduationProject.Controllers
             if (doctor is null)
                 return NotFound(new { message = "No doctor record linked to this account." });
 
-            return Ok(await _service.GetByDoctorAsync(doctor.Id, cancellationToken));
+            return Ok(await _service.GetByDoctorAsync(doctor.Id, pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("doctor/{doctorId}")]
-        public async Task<IActionResult> GetByDoctor(int doctorId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetByDoctor(int doctorId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByDoctorAsync(doctorId, cancellationToken));
+            return Ok(await _service.GetByDoctorAsync(doctorId, pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("patient/{patientId}")]
-        public async Task<IActionResult> GetByPatient(int patientId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetByPatient(int patientId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByPatientAsync(patientId, cancellationToken));
+            return Ok(await _service.GetByPatientAsync(patientId, pageNumber, pageSize, cancellationToken));
         }
         [HttpPost]
         public async Task<IActionResult> Create(

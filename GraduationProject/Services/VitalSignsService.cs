@@ -16,29 +16,27 @@ namespace GraduationProject.Services
         private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
         private readonly ILogger<VitalSignsService> _logger = logger;
 
-        public async Task<IEnumerable<VitalSignsResponse>> GetAllAsync(
+        public async Task<PagedResponse<VitalSignsResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.VitalSigns
                 .AsNoTracking()
-                // NEW: include Patient so PatientName is available for mapping
                 .Include(v => v.Patient)
                 .ProjectToType<VitalSignsResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
-        // NEW: get all vitals for a specific patient directly
-        public async Task<IEnumerable<VitalSignsResponse>> GetByPatientAsync(
-            int patientId,
+        public async Task<PagedResponse<VitalSignsResponse>> GetByPatientAsync(
+            int patientId, int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.VitalSigns
                 .AsNoTracking()
                 .Where(v => v.PatientId == patientId)
                 .Include(v => v.Patient)
-                .OrderByDescending(v => v.TimeStamp) // newest first
+                .OrderByDescending(v => v.TimeStamp)
                 .ProjectToType<VitalSignsResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         // NEW: get only the latest vital reading for a patient

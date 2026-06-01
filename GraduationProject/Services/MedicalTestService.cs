@@ -6,12 +6,12 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<MedicalTestResponse>> GetAllAsync(CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<MedicalTestResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.MedicalTests
                 .AsNoTracking()
                 .ProjectToType<MedicalTestResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         public async Task<Result<MedicalTestResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
@@ -27,22 +27,22 @@ namespace GraduationProject.Services
                 : Result.Success(test);
         }
 
-        public async Task<IEnumerable<MedicalTestResponse>> GetByPatientAsync(int patientId, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<MedicalTestResponse>> GetByPatientAsync(int patientId, int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.MedicalTests
                 .AsNoTracking()
                 .Where(t => t.PatientId == patientId)
                 .ProjectToType<MedicalTestResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
-        public async Task<IEnumerable<MedicalTestResponse>> GetByLabAsync(int labId, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<MedicalTestResponse>> GetByLabAsync(int labId, int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.MedicalTests
                 .AsNoTracking()
                 .Where(t => t.LabId == labId)
                 .ProjectToType<MedicalTestResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         public async Task<Result<MedicalTestResponse>> AddAsync(MedicalTestRequest request, CancellationToken cancellationToken = default)
@@ -88,6 +88,21 @@ namespace GraduationProject.Services
 
             request.Adapt(test);
 
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
+
+        public async Task<Result> UpdateImagePathAsync(
+            int id, string imagePath, CancellationToken cancellationToken = default)
+        {
+            var test = await _context.MedicalTests
+                .FindAsync(new object[] { id }, cancellationToken);
+
+            if (test is null)
+                return Result.Failure(MedicalTestErrors.MedicalTestNotFound);
+
+            test.ImagePath = imagePath;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

@@ -27,3 +27,4 @@ global using System.Text;
 global using Microsoft.AspNetCore.Authorization;
 global using GraduationProject.Abstractions;
 global using GraduationProject.Errors;
+global using GraduationProject.Extensions;

@@ -6,6 +6,7 @@
         string Result,
         DateTime Date,
         int PatientId,
-        int LabId
+        int LabId,
+        string? ImageUrl
     );
 }

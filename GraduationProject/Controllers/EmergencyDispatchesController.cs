@@ -15,25 +15,21 @@ namespace GraduationProject.Controllers
         // GET /api/emergencydispatches
         // returns all dispatches — admin / overview use case
         [HttpGet]
-        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetAllAsync(cancellationToken));
+            return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
         }
 
-        // GET /api/emergencydispatches/patient/{patientId}
-        // returns dispatch history for one patient — newest first
         [HttpGet("patient/{patientId}")]
-        public async Task<IActionResult> GetByPatient(int patientId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetByPatient(int patientId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByPatientAsync(patientId, cancellationToken));
+            return Ok(await _service.GetByPatientAsync(patientId, pageNumber, pageSize, cancellationToken));
         }
 
-        // GET /api/emergencydispatches/ambulance/{ambulanceId}
-        // returns dispatch history for one ambulance — newest first
         [HttpGet("ambulance/{ambulanceId}")]
-        public async Task<IActionResult> GetByAmbulance(int ambulanceId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetByAmbulance(int ambulanceId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByAmbulanceAsync(ambulanceId, cancellationToken));
+            return Ok(await _service.GetByAmbulanceAsync(ambulanceId, pageNumber, pageSize, cancellationToken));
         }
 
         // POST /api/emergencydispatches

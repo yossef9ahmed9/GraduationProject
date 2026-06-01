@@ -14,6 +14,9 @@ namespace GraduationProject.Presistence.EntitiesConfigurations
             builder.Property(x => x.Result)
                 .HasMaxLength(4000);
 
+            builder.Property(x => x.ImagePath)
+                .HasMaxLength(500);
+
             builder.Property(x => x.Date)
                 .IsRequired();
 

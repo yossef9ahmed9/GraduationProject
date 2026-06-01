@@ -31,9 +31,9 @@ namespace GraduationProject.Controllers
         // instead, so this endpoint is effectively unused by doctors —
         // but we keep it intact for Admin and other roles.
         [HttpGet]
-        public async Task<IActionResult> GetPatients(CancellationToken cancellationToken)
+        public async Task<IActionResult> GetPatients([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _patientService.GetAllPatientsAsync(cancellationToken));
+            return Ok(await _patientService.GetAllPatientsAsync(pageNumber, pageSize, cancellationToken));
         }
 
         // ── NEW: GET /api/patients/doctor ───────────────────────────
@@ -45,17 +45,14 @@ namespace GraduationProject.Controllers
         // swallowed by the parameterised route below.
         [HttpGet("doctor")]
         [Authorize(Roles = "Doctor")]
-        public async Task<IActionResult> GetMyPatients(CancellationToken cancellationToken)
+        public async Task<IActionResult> GetMyPatients([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            // The JWT "email" claim is set in JwtProvider using
-            // JwtRegisteredClaimNames.Email — value is user.Email.
             var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
                      ?? User.FindFirst("email")?.Value;
 
             if (string.IsNullOrEmpty(email))
                 return Unauthorized();
 
-            // Look up the Doctor entity that corresponds to this user.
             var doctor = await _context.Doctors
                 .AsNoTracking()
                 .FirstOrDefaultAsync(d => d.Email == email, cancellationToken);
@@ -63,7 +60,6 @@ namespace GraduationProject.Controllers
             if (doctor == null)
                 return NotFound(new { title = "Doctor record not found for the logged-in user." });
 
-            // Collect the patient IDs linked to this doctor via FollowUps.
             var patientIds = await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.DoctorId == doctor.Id)
@@ -71,12 +67,11 @@ namespace GraduationProject.Controllers
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            // Fetch + project those patients using Mapster (same as GetAllPatientsAsync).
             var patients = await _context.Patients
                 .AsNoTracking()
                 .Where(p => patientIds.Contains(p.Id))
                 .ProjectToType<PatientResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
 
             return Ok(patients);
         }

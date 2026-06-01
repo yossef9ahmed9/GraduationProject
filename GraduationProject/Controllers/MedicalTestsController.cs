@@ -10,9 +10,9 @@ namespace GraduationProject.Controllers
         private readonly IMedicalTestService _service = service;
 
         [HttpGet]
-        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetAllAsync(cancellationToken));
+            return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("{id}")]
@@ -26,15 +26,15 @@ namespace GraduationProject.Controllers
         }
 
         [HttpGet("patient/{patientId}")]
-        public async Task<IActionResult> GetByPatient(int patientId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetByPatient(int patientId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByPatientAsync(patientId, cancellationToken));
+            return Ok(await _service.GetByPatientAsync(patientId, pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("lab/{labId}")]
-        public async Task<IActionResult> GetByLab(int labId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetByLab(int labId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByLabAsync(labId, cancellationToken));
+            return Ok(await _service.GetByLabAsync(labId, pageNumber, pageSize, cancellationToken));
         }
 
         [HttpPost]

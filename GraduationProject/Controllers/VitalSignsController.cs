@@ -17,18 +17,18 @@ namespace GraduationProject.Controllers
         private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
 
         [HttpGet]
-        public async Task<IActionResult> Get(CancellationToken cancellationToken)
+        public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetAllAsync(cancellationToken));
+            return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
         }
 
-        // NEW: get all vitals for a specific patient
         [HttpGet("patient/{patientId}")]
         public async Task<IActionResult> GetByPatient(
             int patientId,
-            CancellationToken cancellationToken)
+            [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10,
+            CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetByPatientAsync(patientId, cancellationToken));
+            return Ok(await _service.GetByPatientAsync(patientId, pageNumber, pageSize, cancellationToken));
         }
 
         // NEW: get only the most recent reading for a patient

@@ -35,6 +35,7 @@ namespace GraduationProject.Services.OCR
             text = PreprocessText(text);
             var tests = ExtractTests(text);
 
+<<<<<<< HEAD
             // NEW: validate BEFORE EnsureCompleteTests runs.
             // EnsureCompleteTests pads every missing test with value=0, so checking
             // for all-zeros after that call will always be true on a bad image.
@@ -42,6 +43,8 @@ namespace GraduationProject.Services.OCR
             //   - no tests at all  → OCR read nothing
             //   - all tests are 0  → OCR found the test names but couldn't read the numbers
             // Both cases mean the image is not a readable CBC report.
+=======
+>>>>>>> c61d184 (Add pagination, OCR image storage, and merge OCR all-zeros fix)
             bool nothingExtracted = !tests.Any();
             bool allExtractedAreZero = tests.Any() && tests.All(t => t.Value == 0);
 

@@ -38,9 +38,12 @@ namespace GraduationProject.Controllers
 
             var analysis = _analysisService.Analyze(text);
 
+<<<<<<< HEAD
             // NEW: if OCR couldn't read any real values, return 200 with IsValidScan=false
             // so the frontend receives a structured response instead of treating it as a crash.
             // Nothing is saved to the database.
+=======
+>>>>>>> c61d184 (Add pagination, OCR image storage, and merge OCR all-zeros fix)
             if (!analysis.IsValidScan)
             {
                 return Ok(new
@@ -63,10 +66,16 @@ namespace GraduationProject.Controllers
 
                 var saveResult = await _medicalTestService.AddAsync(request, cancellationToken);
 
-                if (saveResult.IsSuccess)
-                    createdTest = saveResult.Value;
-                else
+                if (!saveResult.IsSuccess)
                     return saveResult.ToProblem();
+
+                var ext = Path.GetExtension(image.FileName);
+                var fileName = $"cbc-{saveResult.Value.Id}{ext}";
+                var relativePath = await _fileService.SaveFileAsync(bytes, "uploads/lab-reports", fileName);
+
+                await _medicalTestService.UpdateImagePathAsync(saveResult.Value.Id, relativePath, cancellationToken);
+
+                createdTest = saveResult.Value with { ImageUrl = $"/{relativePath}" };
             }
 
             return Ok(new

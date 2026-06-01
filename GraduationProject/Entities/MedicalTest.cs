@@ -18,6 +18,8 @@
 
         public Lab Lab { get; set; } = default!;
 
+        public string? ImagePath { get; set; }
+
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAtUtc { get; set; }
     }

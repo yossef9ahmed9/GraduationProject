@@ -9,37 +9,37 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<EmergencyDispatchResponse>> GetAllAsync(
+        public async Task<PagedResponse<EmergencyDispatchResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.EmergencyDispatches
                 .AsNoTracking()
                 .ProjectToType<EmergencyDispatchResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
-        public async Task<IEnumerable<EmergencyDispatchResponse>> GetByPatientAsync(
-            int patientId,
+        public async Task<PagedResponse<EmergencyDispatchResponse>> GetByPatientAsync(
+            int patientId, int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.EmergencyDispatches
                 .AsNoTracking()
                 .Where(e => e.PatientId == patientId)
-                .OrderByDescending(e => e.DispatchedAt) // newest first
+                .OrderByDescending(e => e.DispatchedAt)
                 .ProjectToType<EmergencyDispatchResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
-        public async Task<IEnumerable<EmergencyDispatchResponse>> GetByAmbulanceAsync(
-            int ambulanceId,
+        public async Task<PagedResponse<EmergencyDispatchResponse>> GetByAmbulanceAsync(
+            int ambulanceId, int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.EmergencyDispatches
                 .AsNoTracking()
                 .Where(e => e.AmbulanceId == ambulanceId)
-                .OrderByDescending(e => e.DispatchedAt) // newest first
+                .OrderByDescending(e => e.DispatchedAt)
                 .ProjectToType<EmergencyDispatchResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         public async Task<Result<EmergencyDispatchResponse>> AddAsync(

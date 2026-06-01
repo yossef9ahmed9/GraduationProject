@@ -6,12 +6,12 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<FollowUpResponse>> GetAllAsync(CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<FollowUpResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.FollowUps
                 .AsNoTracking()
                 .ProjectToType<FollowUpResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         public async Task<Result<FollowUpResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
@@ -27,22 +27,22 @@ namespace GraduationProject.Services
                 : Result.Success(followUp);
         }
 
-        public async Task<IEnumerable<FollowUpResponse>> GetByPatientAsync(int patientId, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<FollowUpResponse>> GetByPatientAsync(int patientId, int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.PatientId == patientId)
                 .ProjectToType<FollowUpResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
-        public async Task<IEnumerable<FollowUpResponse>> GetByDoctorAsync(int doctorId, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<FollowUpResponse>> GetByDoctorAsync(int doctorId, int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.DoctorId == doctorId)
                 .ProjectToType<FollowUpResponse>()
-                .ToListAsync(cancellationToken);
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
         public async Task<Result<FollowUpResponse>> AddAsync(FollowUpRequest request, CancellationToken cancellationToken = default)

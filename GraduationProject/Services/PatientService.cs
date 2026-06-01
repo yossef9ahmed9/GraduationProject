@@ -7,8 +7,8 @@ namespace GraduationProject.Services
        
         private readonly AppDbContext _context = context;
 
-        public async Task<IEnumerable<PatientResponse>> GetAllPatientsAsync(CancellationToken cancellationToken = default) =>
-            await _context.Patients.AsNoTracking().ProjectToType<PatientResponse>().ToListAsync(cancellationToken);
+        public async Task<PagedResponse<PatientResponse>> GetAllPatientsAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default) =>
+            await _context.Patients.AsNoTracking().ProjectToType<PatientResponse>().ToPagedListAsync(pageNumber, pageSize, cancellationToken);
 
 
 

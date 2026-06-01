@@ -4,12 +4,11 @@ namespace GraduationProject.Services
 {
     public interface IVitalSignsService
     {
-        Task<IEnumerable<VitalSignsResponse>> GetAllAsync(
+        Task<PagedResponse<VitalSignsResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default);
 
-        // NEW: get all vitals for one patient
-        Task<IEnumerable<VitalSignsResponse>> GetByPatientAsync(
-            int patientId,
+        Task<PagedResponse<VitalSignsResponse>> GetByPatientAsync(
+            int patientId, int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default);
 
         // NEW: get only the latest reading for a patient
