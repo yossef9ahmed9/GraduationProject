@@ -29,8 +29,6 @@ namespace GraduationProject.Services
 
         Task<Result<AuthResponse?>> RefreshTokenAsync(string token);
 
-        // FIXED: returns Result (not Result<string>) — the reset token is sent via
-        // email and is never returned in the HTTP response.
         Task<Result> ForgotPasswordAsync(string email);
 
         Task<Result> ResetPasswordAsync(ResetPasswordRequest request);

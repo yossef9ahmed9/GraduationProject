@@ -8,7 +8,6 @@ namespace GraduationProject
         {
             services.AddControllers();
 
-            // UPDATED: passing configuration down so AddAuthConfig can read JwtOptions from it
             services.AddAuthConfig(configuration);
 
             services.AddFluentValidationsConfig();
@@ -22,7 +21,6 @@ namespace GraduationProject
             services.AddDbContext<AppDbContext>(options =>
                 options.UseSqlServer(connectionString));
 
-            // Add application services
             services.AddScoped<IPatientService, PatientService>();
             services.AddScoped<IAuthService, AuthService>();
             services.AddScoped<IDoctorService, DoctorService>();
@@ -34,19 +32,12 @@ namespace GraduationProject
             services.AddScoped<IFileService, FileService>();
             services.AddScoped<IOcrService, OcrService>();
             services.AddScoped<IAnalysisService, AnalysisService>();
-
-            // UPDATED: registered EmergencyDispatchService — it had an entity, migrations,
-            // and a DbSet but no service or controller wired up, making the whole feature unreachable
             services.AddScoped<IEmergencyDispatchService, EmergencyDispatchService>();
-
-            // NEW: registered AutoEmergencyService — evaluates each incoming vital-signs
-            // reading against critical thresholds and dispatches the nearest available
-            // ambulance automatically when values are dangerously abnormal.
-            // Registered as Scoped because it shares the same DbContext lifetime as the
-            // VitalSignsService that calls it.
             services.AddScoped<IAutoEmergencyService, AutoEmergencyService>();
 
-            // mapster
+            services.Configure<EmailSettings>(configuration.GetSection(EmailSettings.SectionName));
+            services.AddScoped<IEmailService, EmailService>();
+
             var mapingConfig = TypeAdapterConfig.GlobalSettings;
             mapingConfig.Scan(Assembly.GetExecutingAssembly());
 
@@ -57,13 +48,11 @@ namespace GraduationProject
         {
             services.AddEndpointsApiExplorer();
             services.AddSwaggerGen();
-
             return services;
         }
 
         private static IServiceCollection AddFluentValidationsConfig(this IServiceCollection services)
         {
-            // FluentValidation
             services
                 .AddValidatorsFromAssembly(Assembly.GetExecutingAssembly())
                 .AddFluentValidationAutoValidation();
@@ -71,22 +60,15 @@ namespace GraduationProject
             return services;
         }
 
-        // UPDATED: now takes IConfiguration so we can read JWT settings from appsettings.json
-        // instead of having the key, issuer, audience hardcoded in both JwtProvider and here
         private static IServiceCollection AddAuthConfig(this IServiceCollection services, IConfiguration configuration)
         {
-            // UPDATED: register JwtOptions so IOptions<JwtOptions> can be injected into JwtProvider
-            // this binds the "Jwt" section in appsettings.json to the JwtOptions class
             services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-
             services.AddSingleton<IJwtProvider, JwtProvider>();
 
             services.AddIdentity<ApplicationUser, IdentityRole>()
-                .AddEntityFrameworkStores<AppDbContext>();
+                .AddEntityFrameworkStores<AppDbContext>()
+                .AddDefaultTokenProviders();
 
-            // UPDATED: read JWT settings from config instead of hardcoding them here
-            // previously the key, issuer, and audience were duplicated (hardcoded here AND in JwtProvider)
-            // now both places read from the same source: appsettings.json
             var jwtOptions = configuration
                 .GetSection(JwtOptions.SectionName)
                 .Get<JwtOptions>()!;

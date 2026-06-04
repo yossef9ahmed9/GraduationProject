@@ -35,25 +35,22 @@ namespace GraduationProject.Services.OCR
             text = PreprocessText(text);
             var tests = ExtractTests(text);
 
-<<<<<<< HEAD
-            // NEW: validate BEFORE EnsureCompleteTests runs.
+            // Validate BEFORE EnsureCompleteTests runs.
             // EnsureCompleteTests pads every missing test with value=0, so checking
             // for all-zeros after that call will always be true on a bad image.
             // We must check the raw extracted list first:
             //   - no tests at all  → OCR read nothing
             //   - all tests are 0  → OCR found the test names but couldn't read the numbers
             // Both cases mean the image is not a readable CBC report.
-=======
->>>>>>> c61d184 (Add pagination, OCR image storage, and merge OCR all-zeros fix)
-            bool nothingExtracted = !tests.Any();
+            bool nothingExtracted  = !tests.Any();
             bool allExtractedAreZero = tests.Any() && tests.All(t => t.Value == 0);
 
             if (nothingExtracted || allExtractedAreZero)
             {
-                result.Status = "InvalidScan";
+                result.Status      = "InvalidScan";
                 result.IsValidScan = false;
-                result.Tests = new List<LabValue>();
-                result.Alerts = new List<string>
+                result.Tests       = new List<LabValue>();
+                result.Alerts      = new List<string>
                 {
                     "Could not extract any lab values from the image. " +
                     "Please make sure the image is a clear, well-lit photo of a CBC lab report."
@@ -63,7 +60,7 @@ namespace GraduationProject.Services.OCR
 
             tests = EnsureCompleteTests(tests, text);
 
-            var alerts = new List<string>();
+            var alerts        = new List<string>();
             var overallStatus = "Normal";
 
             foreach (var test in tests)
@@ -86,9 +83,9 @@ namespace GraduationProject.Services.OCR
                 }
             }
 
-            result.Tests = tests;
-            result.Status = overallStatus;
-            result.Alerts = alerts;
+            result.Tests      = tests;
+            result.Status     = overallStatus;
+            result.Alerts     = alerts;
             result.IsValidScan = true;
 
             return result;
@@ -98,25 +95,23 @@ namespace GraduationProject.Services.OCR
         {
             var fixes = new Dictionary<string, string>
             {
-                { "125-175", "12.5-17.5" },
-                { "45-59", "4.5-5.9" },
-                { "115-15", "11.5-15" },
-                { "02-1", "0.2-1.0" },
-                { "1-438", "1-4.8" },
-                { "0-01", "0-0.1" },
-                { "150 - 450", "150-450" },
-                { "80 - 100", "80-100" },
-                { "27-33", "27-33" },
-                { "31-37", "31-37" },
-                { "41-52", "41-52" },
-                { "4-11", "4-11" },
-                { "0.1-0.45", "0.1-0.45" }
+                { "125-175",   "12.5-17.5" },
+                { "45-59",     "4.5-5.9"   },
+                { "115-15",    "11.5-15"   },
+                { "02-1",      "0.2-1.0"   },
+                { "1-438",     "1-4.8"     },
+                { "0-01",      "0-0.1"     },
+                { "150 - 450", "150-450"   },
+                { "80 - 100",  "80-100"    },
+                { "27-33",     "27-33"     },
+                { "31-37",     "31-37"     },
+                { "41-52",     "41-52"     },
+                { "4-11",      "4-11"      },
+                { "0.1-0.45",  "0.1-0.45"  }
             };
 
             foreach (var fix in fixes)
-            {
                 text = text.Replace(fix.Key, fix.Value);
-            }
 
             text = Regex.Replace(text, @"mcv\s+fl\s+(\d{3})\s+fl",
                 m => $"MCV {double.Parse(m.Groups[1].Value) / 10} fl",
@@ -149,24 +144,26 @@ namespace GraduationProject.Services.OCR
 
                 if (diffPattern.Success)
                 {
-                    var name = NormalizeName(diffPattern.Groups[1].Value);
+                    var name  = NormalizeName(diffPattern.Groups[1].Value);
                     var value = ParseNumber(diffPattern.Groups[3].Value);
 
                     if (_defaultRanges.ContainsKey(name))
                     {
                         tests.Add(new LabValue
                         {
-                            Name = name,
+                            Name  = name,
                             Value = value,
-                            Min = _defaultRanges[name].min,
-                            Max = _defaultRanges[name].max
+                            Min   = _defaultRanges[name].min,
+                            Max   = _defaultRanges[name].max
                         });
                     }
                     continue;
                 }
 
-                // MCH - special case for OCR reading "Il" instead of "MCH"
-                var mchSpecialMatch = Regex.Match(clean, @"Il\s+(\d+\.?\d*)\s+pg\s+(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                // MCH special case for OCR reading "Il" instead of "MCH"
+                var mchSpecialMatch = Regex.Match(clean,
+                    @"Il\s+(\d+\.?\d*)\s+pg\s+(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (mchSpecialMatch.Success)
                 {
                     var value = ParseNumber(mchSpecialMatch.Groups[1].Value);
@@ -174,21 +171,23 @@ namespace GraduationProject.Services.OCR
 
                     tests.Add(new LabValue
                     {
-                        Name = "MCH",
+                        Name  = "MCH",
                         Value = value,
-                        Min = ParseNumber(mchSpecialMatch.Groups[2].Value),
-                        Max = ParseNumber(mchSpecialMatch.Groups[3].Value)
+                        Min   = ParseNumber(mchSpecialMatch.Groups[2].Value),
+                        Max   = ParseNumber(mchSpecialMatch.Groups[3].Value)
                     });
                     continue;
                 }
 
                 // Haemoglobin
-                var hbMatch = Regex.Match(clean, @"haemoglobin\s*(\d+\.?\d*)\s*g/dl\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var hbMatch = Regex.Match(clean,
+                    @"haemoglobin\s*(\d+\.?\d*)\s*g/dl\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (hbMatch.Success)
                 {
                     var value = ParseNumber(hbMatch.Groups[1].Value);
-                    var min = ParseNumber(hbMatch.Groups[2].Value);
-                    var max = ParseNumber(hbMatch.Groups[3].Value);
+                    var min   = ParseNumber(hbMatch.Groups[2].Value);
+                    var max   = ParseNumber(hbMatch.Groups[3].Value);
 
                     if (min > 100) { min /= 10; max /= 10; }
                     if (value > 100) value /= 10;
@@ -198,21 +197,25 @@ namespace GraduationProject.Services.OCR
                 }
 
                 // Haematocrit
-                var hctMatch = Regex.Match(clean, @"haematocrit.*?(\d+\.?\d*)\s*%\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var hctMatch = Regex.Match(clean,
+                    @"haematocrit.*?(\d+\.?\d*)\s*%\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (hctMatch.Success)
                 {
                     tests.Add(new LabValue
                     {
-                        Name = "Hematocrit",
+                        Name  = "Hematocrit",
                         Value = ParseNumber(hctMatch.Groups[1].Value),
-                        Min = ParseNumber(hctMatch.Groups[2].Value),
-                        Max = ParseNumber(hctMatch.Groups[3].Value)
+                        Min   = ParseNumber(hctMatch.Groups[2].Value),
+                        Max   = ParseNumber(hctMatch.Groups[3].Value)
                     });
                     continue;
                 }
 
                 // RBCs Count
-                var rbcMatch = Regex.Match(clean, @"rbc.*?(\d+\.?\d*)\s*millions.*?(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var rbcMatch = Regex.Match(clean,
+                    @"rbc.*?(\d+\.?\d*)\s*millions.*?(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (rbcMatch.Success)
                 {
                     var min = ParseNumber(rbcMatch.Groups[2].Value);
@@ -221,16 +224,18 @@ namespace GraduationProject.Services.OCR
 
                     tests.Add(new LabValue
                     {
-                        Name = "RBCs Count",
+                        Name  = "RBCs Count",
                         Value = ParseNumber(rbcMatch.Groups[1].Value),
-                        Min = min,
-                        Max = max
+                        Min   = min,
+                        Max   = max
                     });
                     continue;
                 }
 
                 // MCV
-                var mcvMatch = Regex.Match(clean, @"mcv\s*(\d+\.?\d*)\s*fl\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var mcvMatch = Regex.Match(clean,
+                    @"mcv\s*(\d+\.?\d*)\s*fl\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (mcvMatch.Success)
                 {
                     var value = ParseNumber(mcvMatch.Groups[1].Value);
@@ -238,30 +243,34 @@ namespace GraduationProject.Services.OCR
 
                     tests.Add(new LabValue
                     {
-                        Name = "MCV",
+                        Name  = "MCV",
                         Value = value,
-                        Min = ParseNumber(mcvMatch.Groups[2].Value),
-                        Max = ParseNumber(mcvMatch.Groups[3].Value)
+                        Min   = ParseNumber(mcvMatch.Groups[2].Value),
+                        Max   = ParseNumber(mcvMatch.Groups[3].Value)
                     });
                     continue;
                 }
 
                 // MCHC
-                var mchcMatch = Regex.Match(clean, @"mchc\s*(\d+\.?\d*)\s*g/dl\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var mchcMatch = Regex.Match(clean,
+                    @"mchc\s*(\d+\.?\d*)\s*g/dl\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (mchcMatch.Success)
                 {
                     tests.Add(new LabValue
                     {
-                        Name = "MCHC",
+                        Name  = "MCHC",
                         Value = ParseNumber(mchcMatch.Groups[1].Value),
-                        Min = ParseNumber(mchcMatch.Groups[2].Value),
-                        Max = ParseNumber(mchcMatch.Groups[3].Value)
+                        Min   = ParseNumber(mchcMatch.Groups[2].Value),
+                        Max   = ParseNumber(mchcMatch.Groups[3].Value)
                     });
                     continue;
                 }
 
                 // RDW-CV
-                var rdwMatch = Regex.Match(clean, @"rdw-cv\s*(\d+\.?\d*)\s*%\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var rdwMatch = Regex.Match(clean,
+                    @"rdw-cv\s*(\d+\.?\d*)\s*%\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (rdwMatch.Success)
                 {
                     var min = ParseNumber(rdwMatch.Groups[2].Value);
@@ -270,38 +279,42 @@ namespace GraduationProject.Services.OCR
 
                     tests.Add(new LabValue
                     {
-                        Name = "RDW-CV",
+                        Name  = "RDW-CV",
                         Value = ParseNumber(rdwMatch.Groups[1].Value),
-                        Min = min,
-                        Max = max
+                        Min   = min,
+                        Max   = max
                     });
                     continue;
                 }
 
                 // Platelets
-                var pltMatch = Regex.Match(clean, @"platelet.*?(\d+\.?\d*)\s*thousands.*?(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var pltMatch = Regex.Match(clean,
+                    @"platelet.*?(\d+\.?\d*)\s*thousands.*?(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (pltMatch.Success)
                 {
                     tests.Add(new LabValue
                     {
-                        Name = "Platelets",
+                        Name  = "Platelets",
                         Value = ParseNumber(pltMatch.Groups[1].Value),
-                        Min = ParseNumber(pltMatch.Groups[2].Value),
-                        Max = ParseNumber(pltMatch.Groups[3].Value)
+                        Min   = ParseNumber(pltMatch.Groups[2].Value),
+                        Max   = ParseNumber(pltMatch.Groups[3].Value)
                     });
                     continue;
                 }
 
                 // WBC
-                var wbcMatch = Regex.Match(clean, @"leucocytic.*?(\d+\.?\d*)\s*thousands.*?(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", RegexOptions.IgnoreCase);
+                var wbcMatch = Regex.Match(clean,
+                    @"leucocytic.*?(\d+\.?\d*)\s*thousands.*?(\d+\.?\d*)\s*-\s*(\d+\.?\d*)",
+                    RegexOptions.IgnoreCase);
                 if (wbcMatch.Success)
                 {
                     tests.Add(new LabValue
                     {
-                        Name = "WBC",
+                        Name  = "WBC",
                         Value = ParseNumber(wbcMatch.Groups[1].Value),
-                        Min = ParseNumber(wbcMatch.Groups[2].Value),
-                        Max = ParseNumber(wbcMatch.Groups[3].Value)
+                        Min   = ParseNumber(wbcMatch.Groups[2].Value),
+                        Max   = ParseNumber(wbcMatch.Groups[3].Value)
                     });
                     continue;
                 }
@@ -312,24 +325,24 @@ namespace GraduationProject.Services.OCR
 
         private List<LabValue> EnsureCompleteTests(List<LabValue> tests, string rawText)
         {
-            var existingNames = tests.Select(t => t.Name).ToHashSet();
-            var completeTests = new List<LabValue>(tests);
+            var existingNames  = tests.Select(t => t.Name).ToHashSet();
+            var completeTests  = new List<LabValue>(tests);
 
             foreach (var defaultRange in _defaultRanges)
             {
                 if (!existingNames.Contains(defaultRange.Key))
                 {
-                    double value = 0;
-                    var valuePattern = defaultRange.Key switch
+                    double value        = 0;
+                    var    valuePattern = defaultRange.Key switch
                     {
-                        "MCH" => @"Il\s+(\d+\.?\d*)\s+pg",
+                        "MCH"        => @"Il\s+(\d+\.?\d*)\s+pg",
                         "Hemoglobin" => @"haemoglobin\s*(\d+\.?\d*)\s*g/dl",
                         "RBCs Count" => @"rbc\s*count\s*(\d+\.?\d*)",
-                        "MCV" => @"mcv\s*(\d+\.?\d*)\s*fl",
-                        "MCHC" => @"mchc\s*(\d+\.?\d*)\s*g/dl",
-                        "Neutrophils" => @"neutrophils?\s*\d+\.?\d*\s*%\s*(\d+\.?\d*)\s*x10",
-                        "Eosinophils" => @"eosinophils?\s*\d+\.?\d*\s*%\s*(\d+\.?\d*)\s*x10",
-                        "Basophils" => @"basophils?\s*\d+\.?\d*\s*%\s*(\d+\.?\d*)\s*x10",
+                        "MCV"        => @"mcv\s*(\d+\.?\d*)\s*fl",
+                        "MCHC"       => @"mchc\s*(\d+\.?\d*)\s*g/dl",
+                        "Neutrophils"  => @"neutrophils?\s*\d+\.?\d*\s*%\s*(\d+\.?\d*)\s*x10",
+                        "Eosinophils"  => @"eosinophils?\s*\d+\.?\d*\s*%\s*(\d+\.?\d*)\s*x10",
+                        "Basophils"    => @"basophils?\s*\d+\.?\d*\s*%\s*(\d+\.?\d*)\s*x10",
                         _ => null
                     };
 
@@ -337,17 +350,15 @@ namespace GraduationProject.Services.OCR
                     {
                         var match = Regex.Match(rawText, valuePattern, RegexOptions.IgnoreCase);
                         if (match.Success)
-                        {
                             value = ParseNumber(match.Groups[1].Value);
-                        }
                     }
 
                     completeTests.Add(new LabValue
                     {
-                        Name = defaultRange.Key,
+                        Name  = defaultRange.Key,
                         Value = value,
-                        Min = defaultRange.Value.min,
-                        Max = defaultRange.Value.max
+                        Min   = defaultRange.Value.min,
+                        Max   = defaultRange.Value.max
                     });
                 }
             }
@@ -388,17 +399,17 @@ namespace GraduationProject.Services.OCR
             if (name.Contains("haemoglobin") || name.Contains("hemoglobin")) return "Hemoglobin";
             if (name.Contains("haematocrit") || name.Contains("hematocrit") || name.Contains("pcv")) return "Hematocrit";
             if (name.Contains("rbc") && !name.Contains("rdw")) return "RBCs Count";
-            if (name.Contains("mcv")) return "MCV";
+            if (name.Contains("mcv"))  return "MCV";
             if (name.Contains("mchc")) return "MCHC";
             if (name.Contains("mch") && !name.Contains("mchc")) return "MCH";
-            if (name.Contains("rdw")) return "RDW-CV";
+            if (name.Contains("rdw"))  return "RDW-CV";
             if (name.Contains("platelet")) return "Platelets";
             if (name.Contains("wbc") || name.Contains("leucocytic")) return "WBC";
             if (name.Contains("neutrophil")) return "Neutrophils";
             if (name.Contains("lymphocyte")) return "Lymphocytes";
-            if (name.Contains("monocyte")) return "Monocytes";
+            if (name.Contains("monocyte"))   return "Monocytes";
             if (name.Contains("eosinophil")) return "Eosinophils";
-            if (name.Contains("basophil")) return "Basophils";
+            if (name.Contains("basophil"))   return "Basophils";
 
             return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(name);
         }
