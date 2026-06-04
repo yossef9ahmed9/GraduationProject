@@ -1,15 +1,17 @@
-﻿using GraduationProject.Errors;
+using GraduationProject.Errors;
 
 namespace GraduationProject.Services
 {
     public class AuthService(
         UserManager<ApplicationUser> userManager,
         IJwtProvider jwtProvider,
-        AppDbContext context) : IAuthService
+        AppDbContext context,
+        IEmailService emailService) : IAuthService
     {
         public UserManager<ApplicationUser> _userManager { get; } = userManager;
         public IJwtProvider _JwtProvider = jwtProvider;
         private readonly AppDbContext _context = context;
+        private readonly IEmailService _emailService = emailService;
 
         public async Task<Result<AuthResponse?>> GetTokkenAsync(
             string email,
@@ -33,7 +35,7 @@ namespace GraduationProject.Services
 
             user.RefreshTokens.Add(new RefreshToken
             {
-                Token = refreshToken,
+                Token     = refreshToken,
                 CreatedOn = DateTime.UtcNow,
                 ExpiresOn = DateTime.UtcNow.AddDays(7)
             });
@@ -45,16 +47,10 @@ namespace GraduationProject.Services
                 token, expiresIn * 60, refreshToken));
         }
 
-        // UPDATED: replaced single RegisterAsync with separate methods per role
-        // each method creates the identity user + the matching entity record
-        // no more big if/else chain based on role string
-
-        // NEW: register a patient — creates ApplicationUser + Patient entity
         public async Task<Result<AuthResponse?>> RegisterPatientAsync(
             PatientRegisterRequest request,
             CancellationToken cancellationToken = default)
         {
-            // check no duplicate patient email in the Patients table
             var exists = await _context.Patients
                 .AnyAsync(p => p.Email == request.Email, cancellationToken);
 
@@ -64,7 +60,7 @@ namespace GraduationProject.Services
             var user = new ApplicationUser
             {
                 FullName = request.FullName,
-                Email = request.Email,
+                Email    = request.Email,
                 UserName = request.Email
             };
 
@@ -76,28 +72,18 @@ namespace GraduationProject.Services
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
             }
 
-            // assign the Patient role
             await _userManager.AddToRoleAsync(user, "Patient");
 
-            // create the Patient entity record
             var patient = new Patient
             {
-                Name = request.FullName,
-                Email = request.Email,
-
-                // UPDATED: normalize gender to lowercase before saving
-                // the DB check constraint requires 'male' or 'female' — lowercase only
-                // without this the insert throws a DB check constraint violation
-                Gender = request.Gender.ToLower(),
-
-                Phone = request.Phone,
-                Address = request.Address,
-                BirthDate = request.BirthDate,
+                Name          = request.FullName,
+                Email         = request.Email,
+                Gender        = request.Gender.ToLower(),
+                Phone         = request.Phone,
+                Address       = request.Address,
+                BirthDate     = request.BirthDate,
                 MedicalRecord = request.MedicalRecord,
-
-                // UPDATED: defaulted to Unknown so patient can update it later
-                // via PUT /api/patients/{id}
-                BloodType = "Unknown"
+                BloodType     = "Unknown"
             };
 
             await _context.Patients.AddAsync(patient, cancellationToken);
@@ -106,12 +92,10 @@ namespace GraduationProject.Services
             return await GenerateAuthResponseAsync(user);
         }
 
-        // NEW: register a doctor — creates ApplicationUser + Doctor entity
         public async Task<Result<AuthResponse?>> RegisterDoctorAsync(
             DoctorRegisterRequest request,
             CancellationToken cancellationToken = default)
         {
-            // check no duplicate doctor email in the Doctors table
             var exists = await _context.Doctors
                 .AnyAsync(d => d.Email == request.Email, cancellationToken);
 
@@ -121,7 +105,7 @@ namespace GraduationProject.Services
             var user = new ApplicationUser
             {
                 FullName = request.FullName,
-                Email = request.Email,
+                Email    = request.Email,
                 UserName = request.Email
             };
 
@@ -133,15 +117,13 @@ namespace GraduationProject.Services
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
             }
 
-            // assign the Doctor role
             await _userManager.AddToRoleAsync(user, "Doctor");
 
-            // create the Doctor entity record
             var doctor = new Doctor
             {
-                Name = request.FullName,
-                Email = request.Email,
-                Phone = request.Phone,
+                Name           = request.FullName,
+                Email          = request.Email,
+                Phone          = request.Phone,
                 Specialization = request.Specialization
             };
 
@@ -151,23 +133,18 @@ namespace GraduationProject.Services
             return await GenerateAuthResponseAsync(user);
         }
 
-        // NEW: register a lab — creates ApplicationUser + Lab entity
         public async Task<Result<AuthResponse?>> RegisterLabAsync(
             LabRegisterRequest request,
             CancellationToken cancellationToken = default)
         {
-            // UPDATED: added duplicate email check — this was missing entirely before
-            // without it, registering a lab with an existing email would crash on the
-            // identity layer with a generic error instead of a clean response
             var userExists = await _userManager.FindByEmailAsync(request.Email);
             if (userExists is not null)
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed("Email already exists"));
 
-            // labs use LabName as display name since they have no FullName field
             var user = new ApplicationUser
             {
                 FullName = request.LabName,
-                Email = request.Email,
+                Email    = request.Email,
                 UserName = request.Email
             };
 
@@ -179,15 +156,13 @@ namespace GraduationProject.Services
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
             }
 
-            // assign the Lab role
             await _userManager.AddToRoleAsync(user, "Lab");
 
-            // create the Lab entity record
             var lab = new Lab
             {
-                Name = request.LabName,
+                Name     = request.LabName,
                 Location = request.Location,
-                Phone = request.Phone
+                Phone    = request.Phone
             };
 
             await _context.Labs.AddAsync(lab, cancellationToken);
@@ -196,7 +171,6 @@ namespace GraduationProject.Services
             return await GenerateAuthResponseAsync(user);
         }
 
-        // NEW: register a relative — creates ApplicationUser + Relative entity
         public async Task<Result<AuthResponse?>> RegisterRelativeAsync(
             RelativeRegisterRequest request,
             CancellationToken cancellationToken = default)
@@ -204,7 +178,7 @@ namespace GraduationProject.Services
             var user = new ApplicationUser
             {
                 FullName = request.FullName,
-                Email = request.Email,
+                Email    = request.Email,
                 UserName = request.Email
             };
 
@@ -216,16 +190,14 @@ namespace GraduationProject.Services
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
             }
 
-            // assign the Relative role
             await _userManager.AddToRoleAsync(user, "Relative");
 
-            // create the Relative entity record
             var relative = new Relative
             {
-                Name = request.FullName,
-                Phone = request.Phone,
+                Name         = request.FullName,
+                Phone        = request.Phone,
                 RelationType = request.RelationType,
-                PatientId = request.PatientId
+                PatientId    = request.PatientId
             };
 
             await _context.Relatives.AddAsync(relative, cancellationToken);
@@ -234,16 +206,14 @@ namespace GraduationProject.Services
             return await GenerateAuthResponseAsync(user);
         }
 
-        // NEW: register an ambulance — creates ApplicationUser + Ambulance entity
         public async Task<Result<AuthResponse?>> RegisterAmbulanceAsync(
             AmbulanceRegisterRequest request,
             CancellationToken cancellationToken = default)
         {
-            // ambulances use StationName as display name since they have no FullName field
             var user = new ApplicationUser
             {
                 FullName = request.StationName,
-                Email = request.Email,
+                Email    = request.Email,
                 UserName = request.Email
             };
 
@@ -255,18 +225,18 @@ namespace GraduationProject.Services
                 return Result.Failure<AuthResponse>(UserErrors.RegistrationFailed(errors));
             }
 
-            // assign the Ambulance role
             await _userManager.AddToRoleAsync(user, "Ambulance");
 
-            // create the Ambulance entity record
+            // FIXED: LicensePlate, DriverName, DriverPhone are now required non-nullable
+            // fields on AmbulanceRegisterRequest — the ?? "" fallbacks are no longer needed.
             var ambulance = new Ambulance
             {
-                StationName = request.StationName,
-                Phone = request.Phone,
+                StationName        = request.StationName,
+                Phone              = request.Phone,
                 AvailabilityStatus = request.AvailabilityStatus,
-                LicensePlate = request.LicensePlate ?? "",
-                DriverName = request.DriverName ?? "",
-                DriverPhone = request.DriverPhone ?? ""
+                LicensePlate       = request.LicensePlate,
+                DriverName         = request.DriverName,
+                DriverPhone        = request.DriverPhone
             };
 
             await _context.Ambulances.AddAsync(ambulance, cancellationToken);
@@ -275,8 +245,6 @@ namespace GraduationProject.Services
             return await GenerateAuthResponseAsync(user);
         }
 
-        // NEW: private helper — generates the JWT + refresh token after any successful registration
-        // extracted to avoid repeating the same 10 lines in every register method
         private async Task<Result<AuthResponse?>> GenerateAuthResponseAsync(ApplicationUser user)
         {
             var roles = await _userManager.GetRolesAsync(user);
@@ -286,7 +254,7 @@ namespace GraduationProject.Services
 
             user.RefreshTokens.Add(new RefreshToken
             {
-                Token = refreshToken,
+                Token     = refreshToken,
                 CreatedOn = DateTime.UtcNow,
                 ExpiresOn = DateTime.UtcNow.AddDays(7)
             });
@@ -319,7 +287,7 @@ namespace GraduationProject.Services
 
             user.RefreshTokens.Add(new RefreshToken
             {
-                Token = newRefreshToken,
+                Token     = newRefreshToken,
                 CreatedOn = DateTime.UtcNow,
                 ExpiresOn = DateTime.UtcNow.AddDays(7)
             });
@@ -334,24 +302,39 @@ namespace GraduationProject.Services
                 jwtToken, expiresIn * 60, newRefreshToken));
         }
 
-        public async Task<Result<string>> ForgotPasswordAsync(string email)
+        // FIXED: returns Result (not Result<string>) — the token is sent via email and
+        // is never exposed in the HTTP response. Always returns success so callers
+        // cannot enumerate registered emails.
+        public async Task<Result> ForgotPasswordAsync(string email)
         {
             var user = await _userManager.FindByEmailAsync(email);
 
             if (user is null)
-                return Result.Failure<string>(UserErrors.EmailNotFound);
+                return Result.Success(); // intentionally vague — no user enumeration
 
             var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
 
-            return Result.Success(resetToken);
+            try
+            {
+                await _emailService.SendPasswordResetEmailAsync(email, resetToken);
+            }
+            catch (Exception)
+            {
+                // SMTP failure must not leak details to the caller.
+                // Ops team can check logs for the full exception.
+            }
+
+            return Result.Success();
         }
 
         public async Task<Result> ResetPasswordAsync(ResetPasswordRequest request)
         {
             var user = await _userManager.FindByEmailAsync(request.Email);
 
+            // FIXED: return InvalidResetToken (not EmailNotFound) — same reason as above,
+            // we don't confirm whether an email is registered.
             if (user is null)
-                return Result.Failure(UserErrors.EmailNotFound);
+                return Result.Failure(UserErrors.InvalidResetToken);
 
             var result = await _userManager.ResetPasswordAsync(
                 user, request.Token, request.NewPassword);

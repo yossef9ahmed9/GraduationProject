@@ -1,7 +1,8 @@
-﻿namespace GraduationProject.Contracts.Authentication
+namespace GraduationProject.Contracts.Authentication
 {
-    // NEW: dedicated request model for ambulance registration only
-    // replaces the old giant RegisterRequest for the ambulance role
+    // FIXED: LicensePlate, DriverName, DriverPhone were nullable with empty-string
+    // fallbacks in AuthService, meaning every registered ambulance had no driver info.
+    // They are now required non-nullable strings.
     public record AmbulanceRegisterRequest(
         string Email,
         string Password,
@@ -9,8 +10,8 @@
         string StationName,
         string Phone,
         string AvailabilityStatus,
-        string? LicensePlate = null,
-        string? DriverName = null,
-        string? DriverPhone = null
+        string LicensePlate,
+        string DriverName,
+        string DriverPhone
     );
 }

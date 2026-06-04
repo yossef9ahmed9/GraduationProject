@@ -1,4 +1,4 @@
-﻿namespace GraduationProject.Controllers
+namespace GraduationProject.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
@@ -22,11 +22,6 @@
                 : authenticationResult.ToProblem();
         }
 
-        // UPDATED: replaced single /register endpoint with one endpoint per role
-        // frontend calls the specific endpoint based on the role the user selected
-        // each endpoint only accepts the exact fields needed for that role
-
-        // NEW: POST /api/auth/register/patient
         [HttpPost("register/patient")]
         public async Task<IActionResult> RegisterPatient(
             PatientRegisterRequest request,
@@ -36,7 +31,6 @@
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
-        // NEW: POST /api/auth/register/doctor
         [HttpPost("register/doctor")]
         public async Task<IActionResult> RegisterDoctor(
             DoctorRegisterRequest request,
@@ -46,7 +40,6 @@
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
-        // NEW: POST /api/auth/register/lab
         [HttpPost("register/lab")]
         public async Task<IActionResult> RegisterLab(
             LabRegisterRequest request,
@@ -56,7 +49,6 @@
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
-        // NEW: POST /api/auth/register/relative
         [HttpPost("register/relative")]
         public async Task<IActionResult> RegisterRelative(
             RelativeRegisterRequest request,
@@ -66,7 +58,6 @@
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
-        // NEW: POST /api/auth/register/ambulance
         [HttpPost("register/ambulance")]
         public async Task<IActionResult> RegisterAmbulance(
             AmbulanceRegisterRequest request,
@@ -79,21 +70,19 @@
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh(RefreshRequest request)
         {
-            var result =
-                await _authenticationService.RefreshTokenAsync(
-                    request.RefreshToken);
-
+            var result = await _authenticationService.RefreshTokenAsync(request.RefreshToken);
             return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request)
         {
-            var result = await _authenticationService.ForgotPasswordAsync(request.Email);
-
-            return result.IsSuccess
-                ? Ok(new { message = "If the email exists, a reset link has been sent." })
-                : result.ToProblem();
+            // FIXED: ForgotPasswordAsync now returns Result (no token in the body).
+            // The reset token is emailed to the user.
+            // We always return the same 200 message regardless of whether the email
+            // exists — this prevents user enumeration attacks.
+            await _authenticationService.ForgotPasswordAsync(request.Email);
+            return Ok(new { message = "If that email is registered, a password reset link has been sent." });
         }
 
         [HttpPost("reset-password")]

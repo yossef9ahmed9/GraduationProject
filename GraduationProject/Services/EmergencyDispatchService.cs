@@ -2,14 +2,12 @@ using GraduationProject.Contracts.EmergencyDispatches;
 
 namespace GraduationProject.Services
 {
-    // NEW FILE: implementation of IEmergencyDispatchService
-    // the EmergencyDispatch entity, DbSet, and migrations already existed
-    // this was the missing piece that makes the feature actually reachable via the API
     public class EmergencyDispatchService(AppDbContext context) : IEmergencyDispatchService
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<PagedResponse<EmergencyDispatchResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10,
+        public async Task<PagedResponse<EmergencyDispatchResponse>> GetAllAsync(
+            int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.EmergencyDispatches
@@ -19,7 +17,8 @@ namespace GraduationProject.Services
         }
 
         public async Task<PagedResponse<EmergencyDispatchResponse>> GetByPatientAsync(
-            int patientId, int pageNumber = 1, int pageSize = 10,
+            int patientId,
+            int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.EmergencyDispatches
@@ -31,7 +30,8 @@ namespace GraduationProject.Services
         }
 
         public async Task<PagedResponse<EmergencyDispatchResponse>> GetByAmbulanceAsync(
-            int ambulanceId, int pageNumber = 1, int pageSize = 10,
+            int ambulanceId,
+            int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.EmergencyDispatches
@@ -46,7 +46,6 @@ namespace GraduationProject.Services
             EmergencyDispatchRequest request,
             CancellationToken cancellationToken = default)
         {
-            // verify the patient exists before creating a dispatch for them
             var patientExists = await _context.Patients
                 .AnyAsync(p => p.Id == request.PatientId, cancellationToken);
 
@@ -56,7 +55,6 @@ namespace GraduationProject.Services
                         "No patient found with the given ID",
                         StatusCodes.Status404NotFound));
 
-            // verify the ambulance exists and is available
             var ambulance = await _context.Ambulances
                 .FirstOrDefaultAsync(a => a.Id == request.AmbulanceId, cancellationToken);
 
@@ -66,7 +64,6 @@ namespace GraduationProject.Services
                         "No ambulance found with the given ID",
                         StatusCodes.Status404NotFound));
 
-            // only dispatch an available ambulance
             if (ambulance.AvailabilityStatus != "Available")
                 return Result.Failure<EmergencyDispatchResponse>(
                     new Error("Dispatch.AmbulanceNotAvailable",
@@ -75,22 +72,21 @@ namespace GraduationProject.Services
 
             var dispatch = new EmergencyDispatch
             {
-                PatientId = request.PatientId,
-                AmbulanceId = request.AmbulanceId,
-                PatientLatitude = request.PatientLatitude,
+                PatientId        = request.PatientId,
+                AmbulanceId      = request.AmbulanceId,
+                PatientLatitude  = request.PatientLatitude,
                 PatientLongitude = request.PatientLongitude,
-                Notes = request.Notes,
-                DispatchedAt = DateTime.UtcNow,
-                Status = "Pending"
+                Notes            = request.Notes,
+                DispatchedAt     = DateTime.UtcNow,
+                Status           = "Pending"
             };
 
-            // mark ambulance as busy so it won't be dispatched twice
+            // Mark ambulance busy so it won't be double-dispatched
             ambulance.AvailabilityStatus = "Busy";
 
-            // NEW: also mark the patient as in an active emergency
-            // so the auto-emergency service won't double-dispatch for the same patient
-            var patient = await _context.Patients.FindAsync(
-                new object[] { request.PatientId }, cancellationToken);
+            // Mark patient as in an active emergency so auto-emergency doesn't re-trigger
+            var patient = await _context.Patients
+                .FindAsync(new object[] { request.PatientId }, cancellationToken);
             if (patient is not null)
                 patient.IsInEmergency = true;
 
@@ -101,13 +97,12 @@ namespace GraduationProject.Services
         }
 
         public async Task<Result> UpdateStatusAsync(
-            int id,
-            string status,
+            int id, string status,
             CancellationToken cancellationToken = default)
         {
             var dispatch = await _context.EmergencyDispatches
-                .Include(e => e.Ambulance) // need ambulance to update availability on resolve
-                .Include(e => e.Patient)   // NEW: need patient to clear IsInEmergency
+                .Include(e => e.Ambulance)
+                .Include(e => e.Patient)
                 .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
 
             if (dispatch is null)
@@ -118,21 +113,42 @@ namespace GraduationProject.Services
 
             dispatch.Status = status;
 
-            // auto-stamp timestamps as the dispatch moves through its lifecycle
             if (status == "Arrived")
                 dispatch.ArrivedAt = DateTime.UtcNow;
 
             if (status == "Resolved" || status == "Cancelled")
             {
                 dispatch.ResolvedAt = DateTime.UtcNow;
-
-                // free the ambulance back up when the case is closed
                 dispatch.Ambulance.AvailabilityStatus = "Available";
-
-                // NEW: clear the patient's emergency flag so the auto-emergency service
-                // can trigger again if future vitals become critical
                 dispatch.Patient.IsInEmergency = false;
             }
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
+
+        // FIXED: added — entity had ISoftDeletable columns but no delete endpoint existed
+        // Only resolved or cancelled dispatches may be deleted to prevent hiding an active emergency
+        public async Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default)
+        {
+            var dispatch = await _context.EmergencyDispatches
+                .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+
+            if (dispatch is null)
+                return Result.Failure(
+                    new Error("Dispatch.NotFound",
+                        "No dispatch found with the given ID",
+                        StatusCodes.Status404NotFound));
+
+            if (dispatch.Status != "Resolved" && dispatch.Status != "Cancelled")
+                return Result.Failure(
+                    new Error("Dispatch.CannotDelete",
+                        "Only resolved or cancelled dispatches can be deleted",
+                        StatusCodes.Status400BadRequest));
+
+            dispatch.IsDeleted    = true;
+            dispatch.DeletedAtUtc = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(cancellationToken);
 

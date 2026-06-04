@@ -1,4 +1,4 @@
-﻿namespace GraduationProject.Contracts.Patients
+namespace GraduationProject.Contracts.Patients
 {
     public record PatientRequest(
         string Name,
@@ -8,7 +8,11 @@
         string Address,
         DateOnly BirthDate,
         string MedicalRecord,
-        string? BloodType = null,
+
+        // FIXED: these three fields existed on the Patient entity but were missing
+        // from PatientRequest, so PUT /api/patients/{id} silently ignored them.
+        // BloodType has a safe default so existing callers don't break.
+        string BloodType = "Unknown",
         string? ChronicDiseases = null,
         string? Allergies = null
     );

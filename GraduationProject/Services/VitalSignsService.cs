@@ -1,11 +1,8 @@
+using GraduationProject.Contracts.EmergencyDispatches;
 using GraduationProject.Contracts.VitalSigns;
 
 namespace GraduationProject.Services
 {
-    // UPDATED: VitalSignsService now accepts IAutoEmergencyService.
-    // After every successful AddAsync, it calls TryTriggerEmergencyAsync
-    // so the system can automatically dispatch an ambulance when readings
-    // are critically abnormal — no manual intervention needed.
     public class VitalSignsService(
         AppDbContext context,
         IAutoEmergencyService autoEmergency,
@@ -16,7 +13,8 @@ namespace GraduationProject.Services
         private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
         private readonly ILogger<VitalSignsService> _logger = logger;
 
-        public async Task<PagedResponse<VitalSignsResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10,
+        public async Task<PagedResponse<VitalSignsResponse>> GetAllAsync(
+            int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.VitalSigns
@@ -27,7 +25,8 @@ namespace GraduationProject.Services
         }
 
         public async Task<PagedResponse<VitalSignsResponse>> GetByPatientAsync(
-            int patientId, int pageNumber = 1, int pageSize = 10,
+            int patientId,
+            int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
         {
             return await _context.VitalSigns
@@ -39,7 +38,6 @@ namespace GraduationProject.Services
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
-        // NEW: get only the latest vital reading for a patient
         public async Task<Result<VitalSignsResponse>> GetLatestByPatientAsync(
             int patientId,
             CancellationToken cancellationToken = default)
@@ -60,14 +58,12 @@ namespace GraduationProject.Services
             VitalSignsRequest request,
             CancellationToken cancellationToken = default)
         {
-            // NEW: verify the patient exists before saving
             var patientExists = await _context.Patients
                 .AnyAsync(p => p.Id == request.PatientId, cancellationToken);
 
             if (!patientExists)
                 return Result.Failure<VitalSignsResponse>(VitalSignsErrors.PatientNotFound);
 
-            // NEW: verify the sensor belongs to this patient for data integrity
             var sensorBelongsToPatient = await _context.Sensors
                 .AnyAsync(s => s.Id == request.SensorId &&
                                s.PatientId == request.PatientId, cancellationToken);
@@ -80,29 +76,42 @@ namespace GraduationProject.Services
             await _context.VitalSigns.AddAsync(vital, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
-            // NEW: reload with Patient included so response has PatientName
+            // Reload with Patient included so PatientName is available in the response
             await _context.Entry(vital)
                 .Reference(v => v.Patient)
                 .LoadAsync(cancellationToken);
 
-            // ── NEW: Auto-emergency check ──────────────────────────────────────
-            // After saving the reading we immediately evaluate it against critical
-            // thresholds. If a threshold is crossed and the patient is not already
-            // in an active emergency, the nearest available ambulance is dispatched
-            // automatically and the dispatch record is returned here.
-            // We deliberately do NOT fail the whole request if the emergency
-            // service throws — we log and swallow so the vital reading is always saved.
+            // ── Auto-emergency check ───────────────────────────────────────────
+            // FIXED: the dispatch result was previously discarded, so AutoDispatch in
+            // the response was always null even when an ambulance was dispatched.
+            // We now capture it and include it in the response.
+            EmergencyDispatchResponse? autoDispatch = null;
             try
             {
-                await _autoEmergency.TryTriggerEmergencyAsync(vital.Id, cancellationToken);
+                autoDispatch = await _autoEmergency.TryTriggerEmergencyAsync(
+                    vital.Id, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Request was cancelled — re-throw so ASP.NET Core handles it cleanly
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Auto-emergency dispatch failed for vital signs {VitalId}", vital.Id);
+                // Vital reading is already saved — do not fail the whole request.
+                // Log with both IDs so ops can manually review and re-dispatch if needed.
+                _logger.LogError(ex,
+                    "Auto-emergency dispatch failed for vital signs {VitalId} / patient {PatientId}. Manual review required.",
+                    vital.Id, vital.PatientId);
             }
             // ── End auto-emergency check ───────────────────────────────────────
 
-            return Result.Success(vital.Adapt<VitalSignsResponse>());
+            // FIXED: use `with` to inject the real AutoDispatch value.
+            // Mapster always maps AutoDispatch to null (by design in MappingConfigurations)
+            // so a plain Adapt() would lose the dispatch info.
+            var response = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = autoDispatch };
+
+            return Result.Success(response);
         }
     }
 }

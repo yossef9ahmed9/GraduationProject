@@ -1,4 +1,4 @@
-﻿namespace GraduationProject.Services
+namespace GraduationProject.Services
 {
     public interface IAuthService
     {
@@ -7,8 +7,6 @@
             string password,
             CancellationToken cancellationToken = default);
 
-        // UPDATED: replaced single RegisterAsync with one method per role
-        // each method only accepts the fields that role actually needs
         Task<Result<AuthResponse?>> RegisterPatientAsync(
             PatientRegisterRequest request,
             CancellationToken cancellationToken = default);
@@ -31,7 +29,9 @@
 
         Task<Result<AuthResponse?>> RefreshTokenAsync(string token);
 
-        Task<Result<string>> ForgotPasswordAsync(string email);
+        // FIXED: returns Result (not Result<string>) — the reset token is sent via
+        // email and is never returned in the HTTP response.
+        Task<Result> ForgotPasswordAsync(string email);
 
         Task<Result> ResetPasswordAsync(ResetPasswordRequest request);
     }
