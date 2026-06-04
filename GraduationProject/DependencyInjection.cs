@@ -35,6 +35,10 @@ namespace GraduationProject
             services.AddScoped<IEmergencyDispatchService, EmergencyDispatchService>();
             services.AddScoped<IAutoEmergencyService, AutoEmergencyService>();
 
+            // NEW: AI heart-risk model
+            services.AddScoped<IHeartRiskService, HeartRiskService>();
+            services.AddHttpClient();
+
             services.Configure<EmailSettings>(configuration.GetSection(EmailSettings.SectionName));
             services.AddScoped<IEmailService, EmailService>();
 
@@ -76,7 +80,7 @@ namespace GraduationProject
             services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
             })
             .AddJwtBearer(o =>
             {
@@ -84,13 +88,13 @@ namespace GraduationProject
                 o.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(
+                    ValidateIssuer          = true,
+                    ValidateAudience        = true,
+                    ValidateLifetime        = true,
+                    IssuerSigningKey        = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(jwtOptions.Key)),
                     ValidAudience = jwtOptions.Audience,
-                    ValidIssuer = jwtOptions.Issuer
+                    ValidIssuer   = jwtOptions.Issuer
                 };
             });
 
