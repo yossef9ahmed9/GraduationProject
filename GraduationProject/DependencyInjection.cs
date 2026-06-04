@@ -40,7 +40,10 @@ namespace GraduationProject
             services.AddHttpClient();
 
             services.Configure<EmailSettings>(configuration.GetSection(EmailSettings.SectionName));
+
+            services.AddHostedService<RefreshTokenCleanupService>();
             services.AddScoped<IEmailService, EmailService>();
+            services.AddScoped<INotificationService, NotificationService>();
 
             var mapingConfig = TypeAdapterConfig.GlobalSettings;
             mapingConfig.Scan(Assembly.GetExecutingAssembly());

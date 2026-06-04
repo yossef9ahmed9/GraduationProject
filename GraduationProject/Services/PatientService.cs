@@ -9,6 +9,7 @@ namespace GraduationProject.Services
             CancellationToken cancellationToken = default) =>
             await _context.Patients
                 .AsNoTracking()
+                .OrderBy(p => p.Id)
                 .ProjectToType<PatientResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
 

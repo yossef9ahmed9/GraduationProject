@@ -14,6 +14,7 @@
         string Phone,
         string Address,
         DateOnly BirthDate,
-        string MedicalRecord
+        string MedicalRecord,
+        string BloodType
     );
 }

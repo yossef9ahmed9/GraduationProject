@@ -10,6 +10,7 @@ namespace GraduationProject.Services
         {
             return await _context.Sensors
                 .AsNoTracking()
+                .OrderBy(s => s.Id)
                 .ProjectToType<SensorResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }

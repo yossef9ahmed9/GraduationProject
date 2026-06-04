@@ -10,6 +10,7 @@ namespace GraduationProject.Services
         {
             return await _context.FollowUps
                 .AsNoTracking()
+                .OrderBy(f => f.Id)
                 .ProjectToType<FollowUpResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -32,6 +33,7 @@ namespace GraduationProject.Services
             return await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.PatientId == patientId)
+                .OrderBy(f => f.Id)
                 .ProjectToType<FollowUpResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -41,6 +43,7 @@ namespace GraduationProject.Services
             return await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.DoctorId == doctorId)
+                .OrderBy(f => f.Id)
                 .ProjectToType<FollowUpResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }

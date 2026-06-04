@@ -10,6 +10,7 @@ namespace GraduationProject.Services
         {
             return await _context.Labs
                 .AsNoTracking()
+                .OrderBy(l => l.Id)
                 .ProjectToType<LabResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }

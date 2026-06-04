@@ -9,12 +9,13 @@ namespace GraduationProject.Controllers
     [Authorize]
     public class VitalSignsController(
         IVitalSignsService service,
-        IAutoEmergencyService autoEmergency   // NEW: injected so we can expose emergency info
+        IAutoEmergencyService autoEmergency,
+        AppDbContext context
         ) : ControllerBase
     {
         private readonly IVitalSignsService _service = service;
-        // NEW: reference to the auto-emergency service for the manual-trigger endpoint
         private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
+        private readonly AppDbContext _context = context;
 
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
@@ -45,10 +46,24 @@ namespace GraduationProject.Controllers
         }
 
         [HttpPost]
+        [Authorize(Roles = "Patient")]
         public async Task<IActionResult> Create(
             VitalSignsRequest request,
             CancellationToken cancellationToken)
         {
+            var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                     ?? User.FindFirst("email")?.Value;
+
+            if (!string.IsNullOrEmpty(email))
+            {
+                var patient = await _context.Patients
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Email == email, cancellationToken);
+
+                if (patient is null || patient.Id != request.PatientId)
+                    return Forbid();
+            }
+
             var result = await _service.AddAsync(request, cancellationToken);
 
             return result.IsSuccess

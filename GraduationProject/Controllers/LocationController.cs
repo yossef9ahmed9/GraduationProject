@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using GraduationProject.Contracts.Location;
+using GraduationProject.Helpers;
 using GraduationProject.Presistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +36,11 @@ namespace GraduationProject.Controllers
             [FromBody] UpdatePatientLocationRequest request,
             CancellationToken cancellationToken)
         {
+            if (request.Latitude < -90 || request.Latitude > 90)
+                return BadRequest(new { message = "Latitude must be between -90 and 90." });
+            if (request.Longitude < -180 || request.Longitude > 180)
+                return BadRequest(new { message = "Longitude must be between -180 and 180." });
+
             var patient = await _context.Patients
                 .FindAsync(new object[] { patientId }, cancellationToken);
 
@@ -93,6 +99,11 @@ namespace GraduationProject.Controllers
             [FromBody] UpdateAmbulanceLocationRequest request,
             CancellationToken cancellationToken)
         {
+            if (request.Latitude < -90 || request.Latitude > 90)
+                return BadRequest(new { message = "Latitude must be between -90 and 90." });
+            if (request.Longitude < -180 || request.Longitude > 180)
+                return BadRequest(new { message = "Longitude must be between -180 and 180." });
+
             var ambulance = await _context.Ambulances
                 .FindAsync(new object[] { ambulanceId }, cancellationToken);
 
@@ -173,7 +184,7 @@ namespace GraduationProject.Controllers
             if (ambulance.Latitude.HasValue  && ambulance.Longitude.HasValue &&
                 patient.Latitude.HasValue    && patient.Longitude.HasValue)
             {
-                distance = HaversineDistance(
+                distance = LocationHelper.HaversineDistance(
                     patient.Latitude.Value,   patient.Longitude.Value,
                     ambulance.Latitude.Value, ambulance.Longitude.Value);
 
@@ -203,6 +214,11 @@ namespace GraduationProject.Controllers
             [FromQuery] int count = 5,
             CancellationToken cancellationToken = default)
         {
+            if (lat < -90 || lat > 90)
+                return BadRequest(new { message = "Latitude must be between -90 and 90." });
+            if (lng < -180 || lng > 180)
+                return BadRequest(new { message = "Longitude must be between -180 and 180." });
+
             var available = await _context.Ambulances
                 .AsNoTracking()
                 .Where(a => a.AvailabilityStatus == "Available")
@@ -213,12 +229,12 @@ namespace GraduationProject.Controllers
 
             var withGps = available
                 .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
-                .OrderBy(a => HaversineDistance(lat, lng, a.Latitude!.Value, a.Longitude!.Value))
+                .OrderBy(a => LocationHelper.HaversineDistance(lat, lng, a.Latitude!.Value, a.Longitude!.Value))
                 .Take(count)
                 .Select(a => new AmbulanceLocationResponse(
                     a.Id, a.StationName, a.AvailabilityStatus,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
-                    DistanceFromPatientKm: Math.Round(HaversineDistance(
+                    DistanceFromPatientKm: Math.Round(LocationHelper.HaversineDistance(
                         lat, lng, a.Latitude!.Value, a.Longitude!.Value), 2)))
                 .ToList();
 
@@ -242,27 +258,5 @@ namespace GraduationProject.Controllers
             return Ok(nearest);
         }
 
-        // ── Haversine helper ──────────────────────────────────────────────────
-        // NEW: duplicated here (also in AutoEmergencyService) to keep both classes
-        // self-contained. If you want to share it, extract to a static LocationHelper
-        // class in a Helpers/ folder and reference it from both places.
-        private static double HaversineDistance(
-            double lat1, double lon1,
-            double lat2, double lon2)
-        {
-            const double R = 6371.0; // Earth radius in km
-
-            var dLat = ToRad(lat2 - lat1);
-            var dLon = ToRad(lon2 - lon1);
-
-            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                    Math.Cos(ToRad(lat1)) * Math.Cos(ToRad(lat2)) *
-                    Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-
-            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-            return R * c;
-        }
-
-        private static double ToRad(double degrees) => degrees * (Math.PI / 180.0);
     }
 }

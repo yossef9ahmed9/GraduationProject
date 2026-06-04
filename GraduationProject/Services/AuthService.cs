@@ -83,7 +83,7 @@ namespace GraduationProject.Services
                 Address       = request.Address,
                 BirthDate     = request.BirthDate,
                 MedicalRecord = request.MedicalRecord,
-                BloodType     = "Unknown"
+                BloodType     = request.BloodType
             };
 
             await _context.Patients.AddAsync(patient, cancellationToken);

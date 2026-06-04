@@ -1,5 +1,6 @@
 using GraduationProject.Contracts.EmergencyDispatches;
 using GraduationProject.Entities;
+using GraduationProject.Helpers;
 using GraduationProject.Presistence;
 using Mapster;
 using Microsoft.AspNetCore.Http;
@@ -10,9 +11,12 @@ namespace GraduationProject.Services
     // NEW: automatically dispatches the nearest available ambulance
     // when a patient's vital signs are critically abnormal.
     // Triggered internally by VitalSignsService — never called directly from a controller.
-    public class AutoEmergencyService(AppDbContext context) : IAutoEmergencyService
+    public class AutoEmergencyService(
+        AppDbContext context,
+        INotificationService notificationService) : IAutoEmergencyService
     {
         private readonly AppDbContext _context = context;
+        private readonly INotificationService _notificationService = notificationService;
 
         // ── Thresholds ────────────────────────────────────────────────────────────
         // These are the hard limits that classify a reading as a critical emergency.
@@ -114,6 +118,16 @@ namespace GraduationProject.Services
             await _context.EmergencyDispatches.AddAsync(dispatch, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
+            // Notify primary relatives about the emergency (fire-and-forget style)
+            _ = _notificationService.SendEmergencyAlertAsync(
+                new GraduationProject.Contracts.Notifications.EmergencyNotificationRequest(
+                    patient.Id,
+                    patient.Name,
+                    notes,
+                    $"{ambulance.StationName} ({ambulance.LicensePlate})"
+                ),
+                cancellationToken);
+
             return dispatch.Adapt<EmergencyDispatchResponse>();
         }
 
@@ -176,34 +190,13 @@ namespace GraduationProject.Services
 
             var withGps = available
                 .Where(a => a.Latitude.HasValue && a.Longitude.HasValue)
-                .OrderBy(a => HaversineDistance(
+                .OrderBy(a => LocationHelper.HaversineDistance(
                     patient.Latitude.Value, patient.Longitude.Value,
                     a.Latitude!.Value, a.Longitude!.Value))
                 .ToList();
 
             return withGps.Count > 0 ? withGps.First() : available.First();
         }
-
-        // NEW: Haversine formula — returns the great-circle distance in kilometres
-        // between two GPS coordinates.
-        private static double HaversineDistance(
-            double lat1, double lon1,
-            double lat2, double lon2)
-        {
-            const double R = 6371.0; // Earth radius in km
-
-            var dLat = ToRad(lat2 - lat1);
-            var dLon = ToRad(lon2 - lon1);
-
-            var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                    Math.Cos(ToRad(lat1)) * Math.Cos(ToRad(lat2)) *
-                    Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-
-            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-            return R * c;
-        }
-
-        private static double ToRad(double degrees) => degrees * (Math.PI / 180.0);
 
         // NEW: builds a human-readable summary of which values triggered the emergency.
         // Saved in the dispatch Notes field so paramedics know what to expect.

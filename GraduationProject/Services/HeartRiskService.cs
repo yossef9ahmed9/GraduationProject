@@ -194,7 +194,7 @@ namespace GraduationProject.Services
         {
             try
             {
-                var response = await _http.PostAsJsonAsync($"{_baseUrl}/health", _jsonOpts, cancellationToken);
+                var response = await _http.GetAsync($"{_baseUrl}/health", cancellationToken);
                
                 return response.IsSuccessStatusCode;
             }

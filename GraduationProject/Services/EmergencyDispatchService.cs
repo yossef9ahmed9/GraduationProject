@@ -12,6 +12,7 @@ namespace GraduationProject.Services
         {
             return await _context.EmergencyDispatches
                 .AsNoTracking()
+                .OrderBy(e => e.Id)
                 .ProjectToType<EmergencyDispatchResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }

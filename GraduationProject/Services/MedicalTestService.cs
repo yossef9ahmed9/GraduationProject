@@ -10,6 +10,7 @@ namespace GraduationProject.Services
         {
             return await _context.MedicalTests
                 .AsNoTracking()
+                .OrderBy(m => m.Id)
                 .ProjectToType<MedicalTestResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -32,6 +33,7 @@ namespace GraduationProject.Services
             return await _context.MedicalTests
                 .AsNoTracking()
                 .Where(t => t.PatientId == patientId)
+                .OrderBy(t => t.Id)
                 .ProjectToType<MedicalTestResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -41,6 +43,7 @@ namespace GraduationProject.Services
             return await _context.MedicalTests
                 .AsNoTracking()
                 .Where(t => t.LabId == labId)
+                .OrderBy(t => t.Id)
                 .ProjectToType<MedicalTestResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }

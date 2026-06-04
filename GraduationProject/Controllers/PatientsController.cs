@@ -70,6 +70,7 @@ namespace GraduationProject.Controllers
             var patients = await _context.Patients
                 .AsNoTracking()
                 .Where(p => patientIds.Contains(p.Id))
+                .OrderBy(p => p.Id)
                 .ProjectToType<PatientResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
 

@@ -11,5 +11,6 @@ namespace GraduationProject.Services
             Task<Result<DoctorResponse>> AddAsync(DoctorRequest doctor, CancellationToken cancellationToken = default);
             Task<Result> UpdateAsync(int id, DoctorRequest doctor, CancellationToken cancellationToken = default);
             Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default);
+            Task<Result> UpdateAvailabilityAsync(int id, bool isAvailable, CancellationToken cancellationToken = default);
         }
     }

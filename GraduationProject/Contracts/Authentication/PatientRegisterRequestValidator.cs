@@ -47,6 +47,11 @@ namespace GraduationProject.Contracts.Authentication
             RuleFor(x => x.MedicalRecord)
                 .NotEmpty().WithMessage("Medical record is required.")
                 .MaximumLength(1000);
+
+            RuleFor(x => x.BloodType)
+                .NotEmpty().WithMessage("Blood type is required.")
+                .Must(b => b is "A+" or "A-" or "B+" or "B-" or "AB+" or "AB-" or "O+" or "O-")
+                .WithMessage("Blood type must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-.");
         }
     }
 }

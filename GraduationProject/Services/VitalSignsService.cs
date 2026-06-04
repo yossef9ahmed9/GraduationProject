@@ -19,7 +19,7 @@ namespace GraduationProject.Services
         {
             return await _context.VitalSigns
                 .AsNoTracking()
-                .Include(v => v.Patient)
+                .OrderBy(v => v.Id)
                 .ProjectToType<VitalSignsResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -32,7 +32,6 @@ namespace GraduationProject.Services
             return await _context.VitalSigns
                 .AsNoTracking()
                 .Where(v => v.PatientId == patientId)
-                .Include(v => v.Patient)
                 .OrderByDescending(v => v.TimeStamp)
                 .ProjectToType<VitalSignsResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
@@ -45,7 +44,6 @@ namespace GraduationProject.Services
             var vital = await _context.VitalSigns
                 .AsNoTracking()
                 .Where(v => v.PatientId == patientId)
-                .Include(v => v.Patient)
                 .OrderByDescending(v => v.TimeStamp)
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -75,6 +73,16 @@ namespace GraduationProject.Services
 
             await _context.VitalSigns.AddAsync(vital, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
+
+            // Update sensor liveness tracking
+            var sensor = await _context.Sensors.FindAsync(
+                new object[] { request.SensorId }, cancellationToken);
+            if (sensor is not null)
+            {
+                sensor.LastPing = DateTime.UtcNow;
+                sensor.IsActive = true;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
 
             // Reload with Patient included so PatientName is available in the response
             await _context.Entry(vital)

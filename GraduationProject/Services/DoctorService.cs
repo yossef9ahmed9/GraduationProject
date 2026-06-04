@@ -10,6 +10,7 @@ namespace GraduationProject.Services
         {
             return await _context.Doctors
                 .AsNoTracking()
+                .OrderBy(d => d.Id)
                 .ProjectToType<DoctorResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -58,6 +59,19 @@ namespace GraduationProject.Services
 
             request.Adapt(doctor);
 
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
+
+        public async Task<Result> UpdateAvailabilityAsync(int id, bool isAvailable, CancellationToken cancellationToken = default)
+        {
+            var doctor = await _context.Doctors.FindAsync(new object[] { id }, cancellationToken);
+
+            if (doctor == null)
+                return Result.Failure(DoctorErors.DoctorNotFound);
+
+            doctor.IsAvailable = isAvailable;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();
