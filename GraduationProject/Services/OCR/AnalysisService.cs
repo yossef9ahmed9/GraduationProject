@@ -192,9 +192,10 @@ namespace GraduationProject.Services.OCR
                 if (string.IsNullOrWhiteSpace(clean)) continue;
 
                 // ── Differential ─────────────────────────────────────────────
+                // FIX: added [^%]* before % to tolerate stray chars like "( %" from OCR
                 var diffMatch = Regex.Match(clean,
                     @"(neutrophils?\.?|lymphocytes?\.?|monocytes?\.?|eosinophils?\.?|basophils?\.?)" +
-                    @"\s*[:\s]*(\d+\.?\d*)\s*%\s*[:\s]*(\d+\.?\d*)\s*x10",
+                    @"\s*[:\s]*(\d+\.?\d*)\s*[^%]*%\s*[:\s]*(\d+\.?\d*)\s*x10",
                     RegexOptions.IgnoreCase);
 
                 if (diffMatch.Success)
@@ -270,8 +271,9 @@ namespace GraduationProject.Services.OCR
                 }
 
                 // ── MCV ───────────────────────────────────────────────────────
+                // FIX: changed \s*fl\s* to \s*fl?\s* to tolerate "f" instead of "fl" from OCR
                 var mcvMatch = Regex.Match(clean,
-                    @"mcv\s+(\d+\.?\d*)\s*fl\s*(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)",
+                    @"mcv\s+(\d+\.?\d*)\s*fl?\s*(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)",
                     RegexOptions.IgnoreCase);
 
                 if (mcvMatch.Success)
@@ -414,20 +416,22 @@ namespace GraduationProject.Services.OCR
 
                 double value = 0;
 
+                // FIX: MCV pattern uses fl? to tolerate "f" instead of "fl"
+                // FIX: differential patterns use [^%]* before % to tolerate stray chars like "( %"
                 string? pattern = kv.Key switch
                 {
                     "Hemoglobin" => @"h[ae]{1,2}m[oe]?globin\s+(\d+\.?\d*)",
                     "Hematocrit" => @"h[ae]{1,2}m[ae]tocrit.*?(\d+\.?\d*)\s*%",
                     "RBCs Count" => @"rbc\s*s?\s*count\s+(\d+\.?\d*)",
                     "MCH" => @"(?:\bmch\b|Il|1l|NCH)\s+(\d+\.?\d*)\s*pg",
-                    "MCV" => @"mcv\s+(\d+\.?\d*)\s*fl",
+                    "MCV" => @"mcv\s+(\d+\.?\d*)\s*fl?",
                     "MCHC" => @"mchc\s+(\d+\.?\d*)",
                     "RDW-CV" => @"rdw[-\s]?cv\s+(\d+\.?\d*)",
-                    "Neutrophils" => @"neutrophils?\s+\d+\.?\d*\s*%\s+(\d+\.?\d*)\s*x10",
-                    "Lymphocytes" => @"lymphocytes?\s+\d+\.?\d*\s*%\s+(\d+\.?\d*)\s*x10",
-                    "Monocytes" => @"monocytes?\s+\d+\.?\d*\s*%\s+(\d+\.?\d*)\s*x10",
-                    "Eosinophils" => @"eosinophils?\s+\d+\.?\d*\s*%\s+(\d+\.?\d*)\s*x10",
-                    "Basophils" => @"basophils?\s+\d+\.?\d*\s*%\s+(\d+\.?\d*)\s*x10",
+                    "Neutrophils" => @"neutrophils?\s+\d+\.?\d*\s*[^%]*%\s*(\d+\.?\d*)\s*x10",
+                    "Lymphocytes" => @"lymphocytes?\s+\d+\.?\d*\s*[^%]*%\s*(\d+\.?\d*)\s*x10",
+                    "Monocytes" => @"monocytes?\s+\d+\.?\d*\s*[^%]*%\s*(\d+\.?\d*)\s*x10",
+                    "Eosinophils" => @"eosinophils?\s+\d+\.?\d*\s*[^%]*%\s*(\d+\.?\d*)\s*x10",
+                    "Basophils" => @"basophils?\s+\d+\.?\d*\s*[^%]*%\s*(\d+\.?\d*)\s*x10",
                     _ => null
                 };
 
