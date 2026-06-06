@@ -21,8 +21,10 @@ namespace GraduationProject.Mapping
             config.NewConfig<SensorRequest, Sensor>();
 
             config.NewConfig<VitalSignsRequest, VitalSigns>()
-                .Map(dest => dest.TimeStamp, src => DateTime.UtcNow);
-                // PatientId and SensorId map automatically by name
+              .Map(dest => dest.TimeStamp, src => DateTime.UtcNow);
+
+       
+            // PatientId and SensorId map automatically by name
 
             // NEW: map Patient navigation property to get PatientName in response.
             // NEW: AutoDispatch is always null from a direct Adapt call — it is

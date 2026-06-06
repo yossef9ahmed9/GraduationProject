@@ -35,7 +35,7 @@ namespace GraduationProject
             services.AddScoped<IEmergencyDispatchService, EmergencyDispatchService>();
             services.AddScoped<IAutoEmergencyService, AutoEmergencyService>();
 
-            services.AddSingleton<IFcmService, FcmService>();
+            services.AddScoped<IFcmService, FcmService>();
             // NEW: AI heart-risk model
             services.AddScoped<IHeartRiskService, HeartRiskService>();
             services.AddHttpClient();

@@ -9,12 +9,12 @@
             builder.Property(x => x.HeartRate)
                 .IsRequired();
 
+            builder.Property(x => x.OxygenSaturation)
+                .IsRequired();
+
             builder.Property(x => x.TimeStamp)
                 .IsRequired();
 
-            // NOTE: OnDelete is NOT set here anymore
-            // Sensor → VitalSigns is Restrict (handled globally in AppDbContext)
-            // Patient → VitalSigns is Cascade (handled explicitly in AppDbContext)
             builder.HasOne(x => x.Sensor)
                 .WithMany(x => x.VitalSigns)
                 .HasForeignKey(x => x.SensorId);

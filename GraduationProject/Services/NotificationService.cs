@@ -62,5 +62,29 @@ namespace GraduationProject.Services
                     notification.PatientId);
             }
         }
+        // ADD THIS
+        public Task SendPushAsync(
+            string fcmToken,
+            string title,
+            string body,
+            Dictionary<string, string>? data = null,
+            CancellationToken ct = default)
+        {
+            // NotificationService لا يتعامل مع FCM مباشرة - ده شغل FcmService
+            // بس لازم نعمل implement للـ interface
+            _logger.LogInformation("SendPushAsync called on NotificationService - delegated to FcmService");
+            return Task.CompletedTask;
+        }
+
+        // ADD THIS
+        public Task RegisterFcmTokenAsync(
+            string userId,
+            string fcmToken,
+            CancellationToken ct = default)
+        {
+            _logger.LogInformation("RegisterFcmTokenAsync called on NotificationService - delegated to FcmService");
+            return Task.CompletedTask;
+        }
     }
 }
+

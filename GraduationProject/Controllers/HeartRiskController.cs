@@ -106,7 +106,7 @@ namespace GraduationProject.Controllers
             // if the device did not provide it. This still gives a valid risk estimate.
             var request = new HeartRiskRequest(
                 Bpm    : vital.HeartRate,
-                Spo2   : vital.OxygenSaturation ?? 98.0,
+                Spo2   : vital.OxygenSaturation,
                 HrvMs  : 50.0,                            // default — MAX30102 HRV not stored yet
                 Age    : CalculateAge(vital.Patient.BirthDate),
                 Sex    : vital.Patient.Gender.ToLower() == "male" ? 1 : 0

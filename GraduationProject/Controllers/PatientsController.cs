@@ -120,5 +120,20 @@ namespace GraduationProject.Controllers
                 ? NoContent()
                 : result.ToProblem();
         }
+
+
+        [HttpPut("{id}/bloodtype")]
+             public async Task<IActionResult> UpdateBloodType(
+             int id,
+            [FromBody] UpdateBloodTypeRequest request,
+             CancellationToken cancellationToken)
+        {
+            var result = await _patientService.UpdateBloodTypeAsync(
+                id, request.BloodType, cancellationToken);
+
+            return result.IsSuccess
+                ? NoContent()
+                : result.ToProblem();
+        }
     }
 }

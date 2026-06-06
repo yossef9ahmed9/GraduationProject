@@ -39,7 +39,13 @@ namespace GraduationProject.Contracts.Patients
                     .NotEmpty().WithMessage("Medical record is required.")
                     .MaximumLength(1000);
 
-                RuleFor(p => p.BirthDate)
+                RuleFor(p => p.BloodType)
+                    .NotEmpty().WithMessage("Blood type is required.")
+                    .Must(b => b is "A+" or "A-" or "B+" or "B-" or "AB+" or "AB-" or "O+" or "O-")
+                    .WithMessage("Blood type must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-.");
+
+
+            RuleFor(p => p.BirthDate)
                     .NotEmpty().WithMessage("Birth date is required.")
                     .Must(BeAValidBirthDate)
                     .WithMessage("Birth date must be in the past and within the last 120 years.");

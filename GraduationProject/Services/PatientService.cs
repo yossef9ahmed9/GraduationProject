@@ -84,5 +84,28 @@ namespace GraduationProject.Services
 
             return Result.Success();
         }
+
+        public async Task<Result> UpdateBloodTypeAsync(
+             int id, string bloodType,
+             CancellationToken cancellationToken = default)
+        {
+            var patient = await _context.Patients
+                .FindAsync(new object[] { id }, cancellationToken);
+
+            if (patient is null)
+                return Result.Failure(PatientErrors.PatientNotFound);
+
+            var valid = new[] { "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-" };
+            if (!valid.Contains(bloodType))
+                return Result.Failure(new Error(
+                    "Patient.InvalidBloodType",
+                    "Blood type must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-",
+                    StatusCodes.Status400BadRequest));
+
+            patient.BloodType = bloodType;
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Result.Success();
+        }
     }
 }

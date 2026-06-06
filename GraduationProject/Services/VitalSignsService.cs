@@ -19,6 +19,7 @@ namespace GraduationProject.Services
         {
             return await _context.VitalSigns
                 .AsNoTracking()
+                .Include(v => v.Patient)
                 .OrderBy(v => v.Id)
                 .ProjectToType<VitalSignsResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
@@ -31,6 +32,7 @@ namespace GraduationProject.Services
         {
             return await _context.VitalSigns
                 .AsNoTracking()
+                .Include(v => v.Patient)
                 .Where(v => v.PatientId == patientId)
                 .OrderByDescending(v => v.TimeStamp)
                 .ProjectToType<VitalSignsResponse>()
@@ -43,6 +45,7 @@ namespace GraduationProject.Services
         {
             var vital = await _context.VitalSigns
                 .AsNoTracking()
+                .Include(v => v.Patient)
                 .Where(v => v.PatientId == patientId)
                 .OrderByDescending(v => v.TimeStamp)
                 .FirstOrDefaultAsync(cancellationToken);
@@ -74,7 +77,6 @@ namespace GraduationProject.Services
             await _context.VitalSigns.AddAsync(vital, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
-            // Update sensor liveness tracking
             var sensor = await _context.Sensors.FindAsync(
                 new object[] { request.SensorId }, cancellationToken);
             if (sensor is not null)
@@ -84,15 +86,10 @@ namespace GraduationProject.Services
                 await _context.SaveChangesAsync(cancellationToken);
             }
 
-            // Reload with Patient included so PatientName is available in the response
             await _context.Entry(vital)
                 .Reference(v => v.Patient)
                 .LoadAsync(cancellationToken);
 
-            // ── Auto-emergency check ───────────────────────────────────────────
-            // FIXED: the dispatch result was previously discarded, so AutoDispatch in
-            // the response was always null even when an ambulance was dispatched.
-            // We now capture it and include it in the response.
             EmergencyDispatchResponse? autoDispatch = null;
             try
             {
@@ -101,22 +98,15 @@ namespace GraduationProject.Services
             }
             catch (OperationCanceledException)
             {
-                // Request was cancelled — re-throw so ASP.NET Core handles it cleanly
                 throw;
             }
             catch (Exception ex)
             {
-                // Vital reading is already saved — do not fail the whole request.
-                // Log with both IDs so ops can manually review and re-dispatch if needed.
                 _logger.LogError(ex,
                     "Auto-emergency dispatch failed for vital signs {VitalId} / patient {PatientId}. Manual review required.",
                     vital.Id, vital.PatientId);
             }
-            // ── End auto-emergency check ───────────────────────────────────────
 
-            // FIXED: use `with` to inject the real AutoDispatch value.
-            // Mapster always maps AutoDispatch to null (by design in MappingConfigurations)
-            // so a plain Adapt() would lose the dispatch info.
             var response = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = autoDispatch };
 
             return Result.Success(response);

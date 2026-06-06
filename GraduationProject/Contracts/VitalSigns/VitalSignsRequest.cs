@@ -2,13 +2,9 @@
 {
     public record VitalSignsRequest(
         int HeartRate,
+        double OxygenSaturation,
         int SensorId,
-        int PatientId,
-        int? BloodPressureSystolic,
-        int? BloodPressureDiastolic,
-        double? OxygenSaturation,
-        double? Temperature,
-        int? RespiratoryRate,
-        double? BloodGlucose
+        int PatientId
     );
+
 }
