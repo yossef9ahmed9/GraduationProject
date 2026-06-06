@@ -8,6 +8,10 @@ namespace GraduationProject.Services
             int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default);
 
+        Task<Result<EmergencyDispatchResponse>> GetByIdAsync(
+            int id,
+            CancellationToken cancellationToken = default);
+
         Task<PagedResponse<EmergencyDispatchResponse>> GetByPatientAsync(
             int patientId,
             int pageNumber = 1, int pageSize = 10,

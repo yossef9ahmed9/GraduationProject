@@ -6,6 +6,15 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
+        private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
+        {
+            { "Pending",   new() { "OnTheWay" } },
+            { "OnTheWay",  new() { "Arrived" } },
+            { "Arrived",   new() { "Resolved", "Cancelled" } },
+            { "Resolved",  new() },
+            { "Cancelled", new() },
+        };
+
         public async Task<PagedResponse<EmergencyDispatchResponse>> GetAllAsync(
             int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
@@ -15,6 +24,23 @@ namespace GraduationProject.Services
                 .OrderBy(e => e.Id)
                 .ProjectToType<EmergencyDispatchResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+        }
+
+        public async Task<Result<EmergencyDispatchResponse>> GetByIdAsync(
+            int id,
+            CancellationToken cancellationToken = default)
+        {
+            var dispatch = await _context.EmergencyDispatches
+                .AsNoTracking()
+                .ProjectToType<EmergencyDispatchResponse>()
+                .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+
+            return dispatch is not null
+                ? Result.Success(dispatch)
+                : Result.Failure<EmergencyDispatchResponse>(
+                    new Error("Dispatch.NotFound",
+                        "No dispatch found with the given ID",
+                        StatusCodes.Status404NotFound));
         }
 
         public async Task<PagedResponse<EmergencyDispatchResponse>> GetByPatientAsync(
@@ -47,29 +73,37 @@ namespace GraduationProject.Services
             EmergencyDispatchRequest request,
             CancellationToken cancellationToken = default)
         {
+            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
             var patientExists = await _context.Patients
                 .AnyAsync(p => p.Id == request.PatientId, cancellationToken);
 
             if (!patientExists)
+            {
+                await transaction.RollbackAsync(cancellationToken);
                 return Result.Failure<EmergencyDispatchResponse>(
                     new Error("Dispatch.PatientNotFound",
                         "No patient found with the given ID",
                         StatusCodes.Status404NotFound));
+            }
 
-            var ambulance = await _context.Ambulances
-                .FirstOrDefaultAsync(a => a.Id == request.AmbulanceId, cancellationToken);
+            // Atomic claim: only succeeds if ambulance is still Available
+            var rowsAffected = await _context.Ambulances
+                .Where(a => a.Id == request.AmbulanceId && a.AvailabilityStatus == "Available")
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.AvailabilityStatus, "Busy"),
+                    cancellationToken);
 
-            if (ambulance is null)
-                return Result.Failure<EmergencyDispatchResponse>(
-                    new Error("Dispatch.AmbulanceNotFound",
-                        "No ambulance found with the given ID",
-                        StatusCodes.Status404NotFound));
-
-            if (ambulance.AvailabilityStatus != "Available")
+            if (rowsAffected == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
                 return Result.Failure<EmergencyDispatchResponse>(
                     new Error("Dispatch.AmbulanceNotAvailable",
                         "This ambulance is not available for dispatch",
                         StatusCodes.Status400BadRequest));
+            }
+
+            var ambulance = await _context.Ambulances
+                .FindAsync(new object[] { request.AmbulanceId }, cancellationToken);
 
             var dispatch = new EmergencyDispatch
             {
@@ -82,10 +116,6 @@ namespace GraduationProject.Services
                 Status           = "Pending"
             };
 
-            // Mark ambulance busy so it won't be double-dispatched
-            ambulance.AvailabilityStatus = "Busy";
-
-            // Mark patient as in an active emergency so auto-emergency doesn't re-trigger
             var patient = await _context.Patients
                 .FindAsync(new object[] { request.PatientId }, cancellationToken);
             if (patient is not null)
@@ -93,6 +123,7 @@ namespace GraduationProject.Services
 
             await _context.EmergencyDispatches.AddAsync(dispatch, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
 
             return Result.Success(dispatch.Adapt<EmergencyDispatchResponse>());
         }
@@ -111,6 +142,12 @@ namespace GraduationProject.Services
                     new Error("Dispatch.NotFound",
                         "No dispatch found with the given ID",
                         StatusCodes.Status404NotFound));
+
+            if (!ValidTransitions.TryGetValue(dispatch.Status, out var allowed) || !allowed.Contains(status))
+                return Result.Failure(
+                    new Error("Dispatch.InvalidStatusTransition",
+                        $"Cannot transition from '{dispatch.Status}' to '{status}'",
+                        StatusCodes.Status400BadRequest));
 
             dispatch.Status = status;
 

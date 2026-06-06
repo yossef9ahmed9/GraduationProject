@@ -8,15 +8,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GraduationProject.Services
 {
-    // NEW: automatically dispatches the nearest available ambulance
-    // when a patient's vital signs are critically abnormal.
-    // Triggered internally by VitalSignsService — never called directly from a controller.
     public class AutoEmergencyService(
         AppDbContext context,
-        INotificationService notificationService) : IAutoEmergencyService
+        INotificationService notificationService,
+        ILogger<AutoEmergencyService> logger) : IAutoEmergencyService
     {
         private readonly AppDbContext _context = context;
         private readonly INotificationService _notificationService = notificationService;
+        private readonly ILogger<AutoEmergencyService> _logger = logger;
 
         // ── Thresholds ────────────────────────────────────────────────────────────
         // These are the hard limits that classify a reading as a critical emergency.
@@ -45,7 +44,6 @@ namespace GraduationProject.Services
             int vitalSignsId,
             CancellationToken cancellationToken = default)
         {
-            // ── 1. Load the vital signs record with its patient ───────────────────
             var vital = await _context.VitalSigns
                 .Include(v => v.Patient)
                 .FirstOrDefaultAsync(v => v.Id == vitalSignsId, cancellationToken);
@@ -55,17 +53,12 @@ namespace GraduationProject.Services
 
             var patient = vital.Patient;
 
-            // ── 2. Check whether any value is critically abnormal ─────────────────
             if (!IsCritical(vital))
                 return null;
 
-            // ── 3. Guard: do not dispatch again if patient is already in emergency ─
-            // IsInEmergency is set to true when we dispatch and cleared when resolved.
             if (patient.IsInEmergency)
                 return null;
 
-            // Also check for any active (non-resolved, non-cancelled) dispatch
-            // as a second guard in case IsInEmergency was not cleared properly.
             var alreadyActive = await _context.EmergencyDispatches
                 .AnyAsync(d =>
                     d.PatientId == patient.Id &&
@@ -76,40 +69,47 @@ namespace GraduationProject.Services
             if (alreadyActive)
                 return null;
 
-            // ── 4. Find the nearest available ambulance ───────────────────────────
+            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
             var ambulance = await FindNearestAmbulanceAsync(patient, cancellationToken);
 
             if (ambulance == null)
             {
-                // NEW: mark the vital reading as an emergency even if no ambulance
-                // is available yet, so the flag is visible in dashboards.
                 vital.EmergencyStatus = true;
                 await _context.SaveChangesAsync(cancellationToken);
-                return null; // nothing more we can do right now
+                await transaction.CommitAsync(cancellationToken);
+                return null;
             }
 
-            // ── 5. Mark the vital reading as emergency ────────────────────────────
-            vital.EmergencyStatus = true;
+            // Atomic claim: only succeeds if ambulance is still Available
+            var rowsAffected = await _context.Ambulances
+                .Where(a => a.Id == ambulance.Id && a.AvailabilityStatus == "Available")
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.AvailabilityStatus, "Busy"),
+                    cancellationToken);
 
-            // ── 6. Mark the patient as being in an active emergency ───────────────
+            if (rowsAffected == 0)
+            {
+                // Lost the race — ambulance was taken by another request
+                vital.EmergencyStatus = true;
+                await _context.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
+
+            ambulance = await _context.Ambulances
+                .FindAsync(new object[] { ambulance.Id }, cancellationToken);
+
+            vital.EmergencyStatus = true;
             patient.IsInEmergency = true;
 
-            // ── 7. Mark the ambulance as busy so it won't be double-dispatched ────
-            ambulance.AvailabilityStatus = "Busy";
-
-            // ── 8. Build the notes string with the abnormal readings ──────────────
             var notes = BuildEmergencyNotes(vital);
 
-            // ── 9. Create the EmergencyDispatch record ────────────────────────────
             var dispatch = new EmergencyDispatch
             {
                 PatientId    = patient.Id,
                 AmbulanceId  = ambulance.Id,
                 DispatchedAt = DateTime.UtcNow,
                 Status       = "Pending",
-                // Use the patient's last known GPS coordinates.
-                // If the patient has no location on file, default to 0,0
-                // (the caller/frontend can update via a separate endpoint).
                 PatientLatitude  = patient.Latitude  ?? 0,
                 PatientLongitude = patient.Longitude ?? 0,
                 Notes = notes
@@ -117,16 +117,25 @@ namespace GraduationProject.Services
 
             await _context.EmergencyDispatches.AddAsync(dispatch, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
 
-            // Notify primary relatives about the emergency (fire-and-forget style)
-            _ = _notificationService.SendEmergencyAlertAsync(
-                new GraduationProject.Contracts.Notifications.EmergencyNotificationRequest(
-                    patient.Id,
-                    patient.Name,
-                    notes,
-                    $"{ambulance.StationName} ({ambulance.LicensePlate})"
-                ),
-                cancellationToken);
+            try
+            {
+                await _notificationService.SendEmergencyAlertAsync(
+                    new GraduationProject.Contracts.Notifications.EmergencyNotificationRequest(
+                        patient.Id,
+                        patient.Name,
+                        notes,
+                        $"{ambulance.StationName} ({ambulance.LicensePlate})"
+                    ),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to send emergency notification for patient {PatientId}",
+                    patient.Id);
+            }
 
             return dispatch.Adapt<EmergencyDispatchResponse>();
         }

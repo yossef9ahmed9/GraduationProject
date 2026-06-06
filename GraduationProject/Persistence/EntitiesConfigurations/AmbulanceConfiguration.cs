@@ -15,6 +15,21 @@
 
             builder.Property(x => x.AvailabilityStatus)
                 .HasMaxLength(50);
+
+            builder.Property(x => x.LicensePlate)
+                .HasMaxLength(20);
+
+            builder.Property(x => x.DriverName)
+                .HasMaxLength(100);
+
+            builder.Property(x => x.DriverPhone)
+                .HasMaxLength(11);
+
+            builder.Property(x => x.Latitude)
+                .HasColumnType("float");
+
+            builder.Property(x => x.Longitude)
+                .HasColumnType("float");
         }
     }
 }

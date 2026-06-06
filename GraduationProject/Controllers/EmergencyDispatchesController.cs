@@ -19,6 +19,17 @@ namespace GraduationProject.Controllers
             return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
         }
 
+        // GET /api/emergencydispatches/{id}
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
+        {
+            var result = await _service.GetByIdAsync(id, cancellationToken);
+
+            return result.IsSuccess
+                ? Ok(result.Value)
+                : result.ToProblem();
+        }
+
         [HttpGet("patient/{patientId}")]
         public async Task<IActionResult> GetByPatient(
             int patientId,
