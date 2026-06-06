@@ -17,6 +17,8 @@
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAtUtc { get; set; }
 
+        public string? FcmToken { get; set; }
+
         public ICollection<FollowUp> FollowUps { get; set; } = new List<FollowUp>();
     }
 }

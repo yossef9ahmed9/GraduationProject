@@ -18,5 +18,7 @@
 
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAtUtc { get; set; }
+
+        public string? FcmToken { get; set; }
     }
 }

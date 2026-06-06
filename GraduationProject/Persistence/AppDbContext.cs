@@ -16,6 +16,7 @@ namespace GraduationProject.Presistence
         public DbSet<FollowUp> FollowUps { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<EmergencyDispatch> EmergencyDispatches { get; set; }
+        public DbSet<LabAppointment> LabAppointments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -103,6 +104,34 @@ namespace GraduationProject.Presistence
                 .WithMany(u => u.RefreshTokens)
                 .HasForeignKey(r => r.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // 2. Add this inside OnModelCreating (with the other entity configurations):
+            modelBuilder.Entity<LabAppointment>(b =>
+            {
+                b.HasKey(x => x.Id);
+
+                b.Property(x => x.TestNames)
+                    .IsRequired()
+                    .HasMaxLength(500);
+
+                b.Property(x => x.Notes)
+                    .HasMaxLength(1000);
+
+                b.Property(x => x.Status)
+                    .IsRequired()
+                    .HasMaxLength(20);
+
+                b.HasOne(x => x.Patient)
+                    .WithMany()
+                    .HasForeignKey(x => x.PatientId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                b.HasOne(x => x.Lab)
+                    .WithMany()
+                    .HasForeignKey(x => x.LabId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
         }
     }
 }

@@ -21,11 +21,15 @@
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAtUtc { get; set; }
 
+        public string? FcmToken { get; set; }
+
         public ICollection<Relative> Relatives { get; set; } = new List<Relative>();
         public ICollection<Sensor> Sensors { get; set; } = new List<Sensor>();
         public ICollection<MedicalTest> MedicalTests { get; set; } = new List<MedicalTest>();
         public ICollection<FollowUp> FollowUps { get; set; } = new List<FollowUp>();
         public ICollection<EmergencyDispatch> EmergencyDispatches { get; set; } = new List<EmergencyDispatch>();
+
+
 
         // NEW: direct collection of all vitals for this patient across all sensors
         public ICollection<VitalSigns> VitalSigns { get; set; } = new List<VitalSigns>();
