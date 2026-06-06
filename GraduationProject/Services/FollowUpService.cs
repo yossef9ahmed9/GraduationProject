@@ -6,13 +6,32 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<PagedResponse<FollowUpResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<FollowUpResponse>> GetAllAsync(FollowUpFilter filter, CancellationToken cancellationToken = default)
         {
-            return await _context.FollowUps
+            var query = _context.FollowUps
                 .AsNoTracking()
-                .OrderBy(f => f.Id)
+                .AsQueryable();
+
+            if (filter.PatientId.HasValue)
+                query = query.Where(f => f.PatientId == filter.PatientId.Value);
+
+            if (filter.DoctorId.HasValue)
+                query = query.Where(f => f.DoctorId == filter.DoctorId.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.Severity))
+                query = query.Where(f => f.Severity == filter.Severity);
+
+            if (filter.From.HasValue)
+                query = query.Where(f => f.LastUpdate >= filter.From.Value);
+
+            if (filter.To.HasValue)
+                query = query.Where(f => f.LastUpdate <= filter.To.Value);
+
+            return await query
+                .OrderByDescending(f => f.LastUpdate)
+                .ThenByDescending(f => f.Id)
                 .ProjectToType<FollowUpResponse>()
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+                .ToPagedListAsync(filter.PageNumber, filter.PageSize, cancellationToken);
         }
 
         public async Task<Result<FollowUpResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
@@ -33,7 +52,8 @@ namespace GraduationProject.Services
             return await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.PatientId == patientId)
-                .OrderBy(f => f.Id)
+                .OrderByDescending(f => f.LastUpdate)
+                .ThenByDescending(f => f.Id)
                 .ProjectToType<FollowUpResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -43,7 +63,8 @@ namespace GraduationProject.Services
             return await _context.FollowUps
                 .AsNoTracking()
                 .Where(f => f.DoctorId == doctorId)
-                .OrderBy(f => f.Id)
+                .OrderByDescending(f => f.LastUpdate)
+                .ThenByDescending(f => f.Id)
                 .ProjectToType<FollowUpResponse>()
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
@@ -63,6 +84,7 @@ namespace GraduationProject.Services
                 return Result.Failure<FollowUpResponse>(FollowUpErrors.DoctorNotFound);
 
             var followUp = request.Adapt<FollowUp>();
+            followUp.LastUpdate = DateTime.UtcNow;
 
             await _context.FollowUps.AddAsync(followUp, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);

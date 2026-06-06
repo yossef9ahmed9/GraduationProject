@@ -3,6 +3,7 @@ namespace GraduationProject.Contracts.Ambulances
     // ── Response ──────────────────────────────────────────────────────────────
     public record AmbulanceResponse(
         int      Id,
+        string   Email,
         string   StationName,
         string   Phone,
         string   AvailabilityStatus,   // Available / Busy / OutOfService

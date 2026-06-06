@@ -6,6 +6,10 @@
         {
             builder.HasKey(x => x.Id);
 
+            builder.Property(x => x.Email)
+                .IsRequired()
+                .HasMaxLength(150);
+
             builder.Property(x => x.StationName)
                 .IsRequired()
                 .HasMaxLength(100);

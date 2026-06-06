@@ -1,4 +1,5 @@
 using GraduationProject.Contracts.LabAppointments;
+using GraduationProject.Contracts.MedicalTests;
 using GraduationProject.Entities;
 using GraduationProject.Presistence;
 using Microsoft.AspNetCore.Authorization;
@@ -168,6 +169,62 @@ namespace GraduationProject.Controllers
             await _context.SaveChangesAsync(cancellationToken);
 
             return NoContent();
+        }
+
+        [HttpPost("{id}/complete")]
+        public async Task<IActionResult> Complete(
+            int id,
+            [FromBody] CompleteLabAppointmentRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Results is null || request.Results.Count == 0)
+                return BadRequest(new { message = "At least one test result is required." });
+
+            if (request.Results.Any(r =>
+                    string.IsNullOrWhiteSpace(r.Name) ||
+                    string.IsNullOrWhiteSpace(r.Result)))
+                return BadRequest(new { message = "Each result must include a test name and result." });
+
+            var appointment = await _context.LabAppointments
+                .Include(a => a.Patient)
+                .Include(a => a.Lab)
+                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted, cancellationToken);
+
+            if (appointment is null)
+                return NotFound(new { message = "Appointment not found." });
+
+            if (appointment.Status == "Cancelled")
+                return BadRequest(new { message = "Cancelled appointments cannot be completed." });
+
+            if (appointment.Status == "Completed")
+                return BadRequest(new { message = "Appointment is already completed." });
+
+            var now = DateTime.UtcNow;
+            var tests = request.Results.Select(r => new MedicalTest
+            {
+                Name = r.Name.Trim(),
+                Result = r.Result.Trim(),
+                PatientId = appointment.PatientId,
+                LabId = appointment.LabId,
+                Date = now
+            }).ToList();
+
+            await _context.MedicalTests.AddRangeAsync(tests, cancellationToken);
+            appointment.Status = "Completed";
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            var response = tests.Select(t => new MedicalTestResponse(
+                t.Id,
+                t.Name,
+                t.Result,
+                t.Date,
+                t.PatientId,
+                t.LabId,
+                t.ImagePath is null ? null : $"/{t.ImagePath}"
+            )).ToList();
+
+            return Ok(response);
         }
 
         // ── DELETE /api/labappointments/{id} ──────────────────────────────────

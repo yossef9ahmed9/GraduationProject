@@ -231,6 +231,7 @@ namespace GraduationProject.Services
             // fields on AmbulanceRegisterRequest — the ?? "" fallbacks are no longer needed.
             var ambulance = new Ambulance
             {
+                Email              = request.Email,
                 StationName        = request.StationName,
                 Phone              = request.Phone,
                 AvailabilityStatus = request.AvailabilityStatus,

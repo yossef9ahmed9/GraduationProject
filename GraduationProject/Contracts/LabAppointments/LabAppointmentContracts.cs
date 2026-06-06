@@ -27,4 +27,13 @@ namespace GraduationProject.Contracts.LabAppointments
     public record UpdateLabAppointmentStatusRequest(
         string Status
     );
+
+    public record LabTestResultRequest(
+        string Name,
+        string Result
+    );
+
+    public record CompleteLabAppointmentRequest(
+        List<LabTestResultRequest> Results
+    );
 }

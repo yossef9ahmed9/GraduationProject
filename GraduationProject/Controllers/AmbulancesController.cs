@@ -4,6 +4,8 @@ using Mapster;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace GraduationProject.Controllers
 {
@@ -32,12 +34,27 @@ namespace GraduationProject.Controllers
             [FromQuery] int pageSize   = 20,
             CancellationToken cancellationToken = default)
         {
-            var ambulances = await _context.Ambulances
+            var query = _context.Ambulances
                 .AsNoTracking()
-                .Where(a => !a.IsDeleted)
+                .Where(a => !a.IsDeleted);
+
+            if (User.IsInRole("Ambulance"))
+            {
+                var email = GetUserEmail();
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Ambulance email claim is missing." });
+
+                var name = GetUserName();
+                query = query.Where(a =>
+                    a.Email == email ||
+                    (a.Email == "" && a.StationName == name));
+            }
+
+            var ambulances = await query
                 .OrderBy(a => a.StationName)
                 .Select(a => new AmbulanceResponse(
                     a.Id,
+                    a.Email,
                     a.StationName,
                     a.Phone,
                     a.AvailabilityStatus,
@@ -60,12 +77,27 @@ namespace GraduationProject.Controllers
         public async Task<IActionResult> GetAvailable(
             CancellationToken cancellationToken = default)
         {
-            var ambulances = await _context.Ambulances
+            var query = _context.Ambulances
                 .AsNoTracking()
-                .Where(a => !a.IsDeleted && a.AvailabilityStatus == "Available")
+                .Where(a => !a.IsDeleted && a.AvailabilityStatus == "Available");
+
+            if (User.IsInRole("Ambulance"))
+            {
+                var email = GetUserEmail();
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Ambulance email claim is missing." });
+
+                var name = GetUserName();
+                query = query.Where(a =>
+                    a.Email == email ||
+                    (a.Email == "" && a.StationName == name));
+            }
+
+            var ambulances = await query
                 .OrderBy(a => a.StationName)
                 .Select(a => new AmbulanceResponse(
                     a.Id,
+                    a.Email,
                     a.StationName,
                     a.Phone,
                     a.AvailabilityStatus,
@@ -93,6 +125,7 @@ namespace GraduationProject.Controllers
                 .Where(a => a.Id == id && !a.IsDeleted)
                 .Select(a => new AmbulanceResponse(
                     a.Id,
+                    a.Email,
                     a.StationName,
                     a.Phone,
                     a.AvailabilityStatus,
@@ -110,6 +143,20 @@ namespace GraduationProject.Controllers
             if (ambulance is null)
                 return NotFound(new { message = "Ambulance not found." });
 
+            if (User.IsInRole("Ambulance"))
+            {
+                var email = GetUserEmail();
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Ambulance email claim is missing." });
+
+                var name = GetUserName();
+                var isOwnAmbulance = ambulance.Email == email ||
+                    (ambulance.Email == "" && ambulance.StationName == name);
+
+                if (!isOwnAmbulance)
+                    return Forbid();
+            }
+
             return Ok(ambulance);
         }
 
@@ -126,6 +173,23 @@ namespace GraduationProject.Controllers
 
             if (!exists)
                 return NotFound(new { message = "Ambulance not found." });
+
+            if (User.IsInRole("Ambulance"))
+            {
+                var email = GetUserEmail();
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Ambulance email claim is missing." });
+
+                var name = GetUserName();
+                var isOwnAmbulance = await _context.Ambulances.AnyAsync(a =>
+                    a.Id == id &&
+                    !a.IsDeleted &&
+                    (a.Email == email || (a.Email == "" && a.StationName == name)),
+                    cancellationToken);
+
+                if (!isOwnAmbulance)
+                    return Forbid();
+            }
 
             var dispatches = await _context.EmergencyDispatches
                 .AsNoTracking()
@@ -165,10 +229,36 @@ namespace GraduationProject.Controllers
             if (ambulance is null)
                 return NotFound(new { message = "Ambulance not found." });
 
+            if (User.IsInRole("Ambulance"))
+            {
+                var email = GetUserEmail();
+                if (string.IsNullOrWhiteSpace(email))
+                    return Unauthorized(new { message = "Ambulance email claim is missing." });
+
+                var name = GetUserName();
+                var isOwnAmbulance = ambulance.Email == email ||
+                    (ambulance.Email == "" && ambulance.StationName == name);
+
+                if (!isOwnAmbulance)
+                    return Forbid();
+
+                if (string.IsNullOrWhiteSpace(ambulance.Email))
+                    ambulance.Email = email;
+            }
+
             ambulance.AvailabilityStatus = request.AvailabilityStatus;
             await _context.SaveChangesAsync(cancellationToken);
 
             return NoContent();
         }
+
+        private string? GetUserEmail() =>
+            User.FindFirstValue(ClaimTypes.Email)
+            ?? User.FindFirstValue("email");
+
+        private string? GetUserName() =>
+            User.FindFirstValue(ClaimTypes.Name)
+            ?? User.FindFirstValue(JwtRegisteredClaimNames.Name)
+            ?? User.FindFirstValue("name");
     }
 }

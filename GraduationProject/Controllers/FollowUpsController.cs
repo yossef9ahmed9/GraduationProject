@@ -14,9 +14,9 @@ namespace GraduationProject.Controllers
         private readonly AppDbContext _context = context;
 
         [HttpGet]
-        public async Task<IActionResult> Get([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> Get([FromQuery] FollowUpFilter filter, CancellationToken cancellationToken = default)
         {
-            return Ok(await _service.GetAllAsync(pageNumber, pageSize, cancellationToken));
+            return Ok(await _service.GetAllAsync(filter, cancellationToken));
         }
 
         [HttpGet("{id}")]
@@ -52,6 +52,25 @@ namespace GraduationProject.Controllers
         public async Task<IActionResult> GetByDoctor(int doctorId, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10, CancellationToken cancellationToken = default)
         {
             return Ok(await _service.GetByDoctorAsync(doctorId, pageNumber, pageSize, cancellationToken));
+        }
+
+        [HttpGet("patient")]
+        public async Task<IActionResult> GetForPatient([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
+        {
+            var email = User.FindFirstValue(ClaimTypes.Email)
+                        ?? User.FindFirstValue(JwtRegisteredClaimNames.Email);
+
+            if (string.IsNullOrEmpty(email))
+                return Unauthorized();
+
+            var patient = await _context.Patients
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Email == email, cancellationToken);
+
+            if (patient is null)
+                return NotFound(new { message = "No patient record linked to this account." });
+
+            return Ok(await _service.GetByPatientAsync(patient.Id, pageNumber, pageSize, cancellationToken));
         }
 
         [HttpGet("patient/{patientId}")]
