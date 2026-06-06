@@ -17,6 +17,7 @@ namespace GraduationProject.Presistence
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<EmergencyDispatch> EmergencyDispatches { get; set; }
         public DbSet<LabAppointment> LabAppointments { get; set; }
+        public DbSet<ChatMessage> ChatMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

@@ -31,6 +31,7 @@ namespace GraduationProject.Presistence.EntitiesConfigurations
          builder.HasCheckConstraint(
                 "CK_Patient_Gender",
                 "Gender IN ('male','female')");
+
         }
 
 
