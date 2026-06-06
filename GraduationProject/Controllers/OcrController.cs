@@ -6,7 +6,7 @@ namespace GraduationProject.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
+   // [Authorize]
     public class OcrController(
         IFileService fileService,
         IOcrService ocrService,

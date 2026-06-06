@@ -11,7 +11,6 @@ import 'package:meditrack/widgets/common_widgets.dart';
 
 class TestsPage extends StatefulWidget {
   const TestsPage({super.key});
-
   @override
   State<TestsPage> createState() => _TestsPageState();
 }
@@ -21,12 +20,22 @@ class _TestsPageState extends State<TestsPage> {
   String? _message;
   bool _isError = false;
 
+  // ── OCR state ─────────────────────────────────────────────────
+  OcrScanResponse? _ocrResult;
+  int? _ocrPatientId;
+  int? _ocrLabId;
+  int? _ocrAppointmentId;
+  final Map<String, TextEditingController> _manualCtrls = {};
+
+  @override
+  void dispose() {
+    for (final c in _manualCtrls.values) c.dispose();
+    super.dispose();
+  }
+
   Future<void> _refresh() async {
     final app = context.read<AppProvider>();
-    await Future.wait([
-      app.refreshTests(),
-      app.refreshLabAppointments(),
-    ]);
+    await Future.wait([app.refreshTests(), app.refreshLabAppointments()]);
   }
 
   Future<void> _updateStatus(LabAppointmentResponse appointment, String status) async {
@@ -36,8 +45,7 @@ class _TestsPageState extends State<TestsPage> {
     await app.refreshLabAppointments();
     if (!mounted) return;
     setState(() {
-      _busy = false;
-      _isError = !res.ok;
+      _busy = false; _isError = !res.ok;
       _message = res.ok ? 'Request marked as $status.' : res.error ?? 'Failed to update request.';
     });
   }
@@ -48,72 +56,156 @@ class _TestsPageState extends State<TestsPage> {
       builder: (_) => _CompleteResultDialog(appointment: appointment),
     );
     if (results == null || results.isEmpty) return;
-
     setState(() { _busy = true; _message = null; });
     final res = await apiService.completeLabAppointment(
-      appointment.id,
-      CompleteLabAppointmentRequest(results: results),
+      appointment.id, CompleteLabAppointmentRequest(results: results),
     );
     await _refresh();
     if (!mounted) return;
     setState(() {
-      _busy = false;
-      _isError = !res.ok;
+      _busy = false; _isError = !res.ok;
       _message = res.ok ? 'Results saved and sent to patient.' : res.error ?? 'Failed to save results.';
     });
   }
 
-  Future<void> _scanOcr(LabAppointmentResponse appointment) async {
+  // ── OCR core ──────────────────────────────────────────────────
+  Future<void> _runOcr({
+    required int patientId,
+    required int labId,
+    int? appointmentId,
+  }) async {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'bmp', 'tif', 'tiff'],
       withData: true,
     );
     if (picked == null || picked.files.isEmpty) return;
-
-    final file = picked.files.first;
+    final file  = picked.files.first;
     final bytes = file.bytes;
     if (bytes == null) {
+      setState(() { _isError = true; _message = 'Could not read selected image.'; });
+      return;
+    }
+
+    setState(() { _busy = true; _message = null; _ocrResult = null; _manualCtrls.clear(); });
+
+    final res = await apiService.uploadOcrReport(
+      fileName: file.name, bytes: bytes, patientId: patientId, labId: labId,
+    );
+    if (!mounted) return;
+
+    if (!res.ok) {
+      setState(() { _busy = false; _isError = true; _message = res.error ?? 'Failed to scan report.'; });
+      return;
+    }
+
+    final scan = res.data!;
+    final tests = (scan.analysis['tests'] as List? ?? []);
+
+    // Totally unreadable — show all CBC fields for manual entry
+    if (!scan.isValidScan) {
+      const allFields = [
+        'Hemoglobin','Hematocrit','RBCs Count','MCV','MCH','MCHC',
+        'RDW-CV','Platelets','WBC','Neutrophils','Lymphocytes',
+        'Monocytes','Eosinophils','Basophils',
+      ];
       setState(() {
-        _isError = true;
-        _message = 'Could not read selected image.';
+        _busy = false; _isError = false;
+        _message = 'Could not read values from image. Please enter them manually.';
+        _ocrResult = scan; _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
+        for (final f in allFields) _manualCtrls[f] = TextEditingController();
       });
       return;
     }
 
-    setState(() { _busy = true; _message = null; });
-    final res = await apiService.uploadOcrReport(
-      fileName: file.name,
-      bytes: bytes,
+    // Partially unreadable — show only the bad fields
+    final unreadable = tests
+        .where((t) => (t as Map)['status'] == 'UnreadableValue')
+        .map((t) => (t as Map)['name'] as String)
+        .toList();
+
+    if (unreadable.isNotEmpty) {
+      setState(() {
+        _busy = false; _isError = false;
+        _message = 'Some values could not be read. Please enter them manually.';
+        _ocrResult = scan; _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
+        for (final f in unreadable) _manualCtrls[f] = TextEditingController();
+      });
+      return;
+    }
+
+    // Fully valid — already saved by backend
+    await _refresh();
+    setState(() {
+      _busy = false; _isError = false;
+      _message = 'Report scanned and saved successfully.';
+    });
+  }
+
+  // OCR for Lab (linked to appointment)
+  Future<void> _scanOcr(LabAppointmentResponse appointment) async {
+    await _runOcr(
       patientId: appointment.patientId,
       labId: appointment.labId,
+      appointmentId: appointment.id,
     );
+  }
+
+  // OCR for Patient (standalone)
+  Future<void> _scanOcrPatient() async {
+    final app  = context.read<AppProvider>();
+    final auth = context.read<AuthProvider>();
+    final patientId = app.patientByEmail(auth.user?.email ?? '')?.id;
+    if (patientId == null || app.labs.isEmpty) {
+      setState(() { _isError = true; _message = 'No labs available.'; });
+      return;
+    }
+    await _runOcr(patientId: patientId, labId: app.labs.first.id);
+  }
+
+  // Submit manual corrections
+  Future<void> _submitManual() async {
+    if (_ocrPatientId == null || _ocrLabId == null) return;
+    final tests = List<Map>.from((_ocrResult?.analysis['tests'] as List? ?? []));
+    final allFields = Map<String, String>.fromEntries(
+        tests.map((t) => MapEntry(t['name'] as String, '${t['value']}')));
+    for (final e in _manualCtrls.entries) {
+      final v = e.value.text.trim();
+      if (v.isNotEmpty) allFields[e.key] = v;
+    }
+    final resultStr = allFields.entries.map((e) => '${e.key}: ${e.value}').join(' | ');
+    setState(() { _busy = true; _message = null; });
+    final res = await apiService.addMedicalTest(MedicalTestRequest(
+      name: 'CBC', result: resultStr,
+      patientId: _ocrPatientId!, labId: _ocrLabId!,
+    ));
+    if (res.ok && _ocrAppointmentId != null) {
+      await apiService.updateLabAppointmentStatus(_ocrAppointmentId!, 'Completed');
+    }
     await _refresh();
     if (!mounted) return;
     setState(() {
-      _busy = false;
-      _isError = !res.ok || !(res.data?.isValidScan ?? false);
-      _message = res.ok
-          ? ((res.data?.isValidScan ?? false)
-              ? 'Report scanned and saved.'
-              : 'The scan was uploaded, but no valid lab values were detected.')
-          : res.error ?? 'Failed to scan report.';
+      _busy = false; _isError = !res.ok;
+      _message = res.ok ? 'Results saved successfully.' : (res.error ?? 'Failed to save.');
+      if (res.ok) {
+        _ocrResult = null; _manualCtrls.clear();
+        _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppProvider>();
-    final auth = context.watch<AuthProvider>();
-    final role = auth.role;
+    final app    = context.watch<AppProvider>();
+    final auth   = context.watch<AuthProvider>();
+    final role   = auth.role;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final patient = role == UserRole.patient
-        ? app.patientByEmail(auth.user?.email ?? '')
-        : null;
-    final visibleTests = patient != null ? app.testsForPatient(patient.id) : app.tests;
+        ? app.patientByEmail(auth.user?.email ?? '') : null;
+    final visibleTests        = patient != null ? app.testsForPatient(patient.id) : app.tests;
     final visibleAppointments = patient != null
-        ? app.labAppointmentsForPatient(patient.id)
-        : app.labAppointments;
+        ? app.labAppointmentsForPatient(patient.id) : app.labAppointments;
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -130,6 +222,21 @@ class _TestsPageState extends State<TestsPage> {
                 ],
                 if (_busy) const LinearProgressIndicator(minHeight: 2),
                 if (_busy) const SizedBox(height: 12),
+
+                // Manual entry panel — appears after unreadable OCR
+                if (_ocrResult != null && _manualCtrls.isNotEmpty) ...[
+                  _ManualEntryPanel(
+                    ctrls: _manualCtrls,
+                    ocrTests: (_ocrResult!.analysis['tests'] as List? ?? []),
+                    onSubmit: _submitManual,
+                    onCancel: () => setState(() {
+                      _ocrResult = null; _manualCtrls.clear(); _message = null;
+                    }),
+                    busy: _busy,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 Text(
                   role == UserRole.lab ? 'Lab Requests' : 'My Lab Tests',
                   style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w700),
@@ -139,32 +246,44 @@ class _TestsPageState extends State<TestsPage> {
                   role == UserRole.lab
                       ? '${visibleAppointments.length} request${visibleAppointments.length == 1 ? "" : "s"} waiting or completed'
                       : '${visibleTests.length} result${visibleTests.length == 1 ? "" : "s"} saved',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 13,
-                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
-                  ),
+                  style: GoogleFonts.dmSans(fontSize: 13,
+                      color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
                 ),
+
+                // Scan button for patient
+                if (role == UserRole.patient && app.labs.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _scanOcrPatient,
+                      icon: const Icon(Icons.document_scanner_outlined, size: 16),
+                      label: Text('Scan Lab Report',
+                          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w500)),
+                    ),
+                  ),
+                ],
               ]),
             ),
           ),
+
           if (role == UserRole.lab) ...[
             if (visibleAppointments.isEmpty)
-              const SliverToBoxAdapter(child: EmptyState(message: 'No lab requests yet', icon: Icons.science_outlined))
+              const SliverToBoxAdapter(
+                  child: EmptyState(message: 'No lab requests yet', icon: Icons.science_outlined))
             else
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (_, i) => _LabRequestCard(
+                        (_, i) => _LabRequestCard(
                       appointment: visibleAppointments[i],
                       onScan: () => _scanOcr(visibleAppointments[i]),
                       onConfirm: visibleAppointments[i].status == 'Pending'
-                          ? () => _updateStatus(visibleAppointments[i], 'Confirmed')
-                          : null,
+                          ? () => _updateStatus(visibleAppointments[i], 'Confirmed') : null,
                       onComplete: visibleAppointments[i].status != 'Completed' &&
-                              visibleAppointments[i].status != 'Cancelled'
-                          ? () => _complete(visibleAppointments[i])
-                          : null,
+                          visibleAppointments[i].status != 'Cancelled'
+                          ? () => _complete(visibleAppointments[i]) : null,
                     ),
                     childCount: visibleAppointments.length,
                   ),
@@ -176,19 +295,20 @@ class _TestsPageState extends State<TestsPage> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (_, i) => _AppointmentCard(appointment: visibleAppointments[i]),
+                        (_, i) => _AppointmentCard(appointment: visibleAppointments[i]),
                     childCount: visibleAppointments.length,
                   ),
                 ),
               ),
             if (visibleTests.isEmpty)
-              const SliverToBoxAdapter(child: EmptyState(message: 'No test results found', icon: Icons.description_outlined))
+              const SliverToBoxAdapter(
+                  child: EmptyState(message: 'No test results found', icon: Icons.description_outlined))
             else
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (_, i) => _TestTile(test: visibleTests[i], app: app),
+                        (_, i) => _TestTile(test: visibleTests[i], app: app),
                     childCount: visibleTests.length,
                   ),
                 ),
@@ -200,26 +320,137 @@ class _TestsPageState extends State<TestsPage> {
   }
 }
 
+// ── Manual Entry Panel ────────────────────────────────────────
+
+class _ManualEntryPanel extends StatelessWidget {
+  final Map<String, TextEditingController> ctrls;
+  final List ocrTests;
+  final VoidCallback onSubmit;
+  final VoidCallback onCancel;
+  final bool busy;
+  const _ManualEntryPanel({
+    required this.ctrls, required this.ocrTests,
+    required this.onSubmit, required this.onCancel, required this.busy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark   = Theme.of(context).brightness == Brightness.dark;
+    final readable = ocrTests
+        .where((t) => (t as Map)['status'] != 'UnreadableValue' && (t['value'] as num? ?? 0) != 0)
+        .toList();
+
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Row(children: [
+          Icon(Icons.edit_note_rounded, size: 18,
+              color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Enter unreadable values manually',
+              style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
+                  color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt))),
+        ]),
+      ),
+
+      if (readable.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Wrap(spacing: 6, runSpacing: 6,
+              children: readable.map((t) {
+                final m      = t as Map;
+                final isAlert = m['status'] == 'Low' || m['status'] == 'High';
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isAlert
+                        ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
+                        : (isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${m['name']}: ${m['value']}${isAlert ? ' (${m['status']})' : ''}',
+                    style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w500,
+                        color: isAlert
+                            ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                            : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)),
+                  ),
+                );
+              }).toList()),
+        ),
+
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        child: Text('Enter missing values:',
+            style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+                letterSpacing: 0.05)),
+      ),
+
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Column(children: ctrls.entries.map((e) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: TextFormField(
+            controller: e.value,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: e.key, hintText: 'e.g. 13.5', isDense: true,
+            ),
+          ),
+        )).toList()),
+      ),
+
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Row(children: [
+          Expanded(child: OutlinedButton(
+              onPressed: busy ? null : onCancel, child: const Text('Cancel'))),
+          const SizedBox(width: 12),
+          Expanded(child: ElevatedButton(
+            onPressed: busy ? null : onSubmit,
+            child: busy
+                ? const SizedBox(width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Save Results'),
+          )),
+        ]),
+      ),
+    ]));
+  }
+}
+
+// ── Appointment card (patient view) ──────────────────────────
+
 class _AppointmentCard extends StatelessWidget {
   final LabAppointmentResponse appointment;
   const _AppointmentCard({required this.appointment});
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final date = DateTime.tryParse(appointment.appointmentDate)?.toLocal();
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final date    = DateTime.tryParse(appointment.appointmentDate)?.toLocal();
     final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '-';
     return AppCard(
       padding: const EdgeInsets.all(14),
       child: Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(appointment.testNames.join(', '), style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600)),
+          Text(appointment.testNames.join(', '),
+              style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 3),
-          Text('${appointment.labName.isNotEmpty ? appointment.labName : 'Lab #${appointment.labId}'} - $dateStr',
-              style: GoogleFonts.dmSans(fontSize: 12, color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+          Text(
+            '${appointment.labName.isNotEmpty ? appointment.labName : 'Lab #${appointment.labId}'} - $dateStr',
+            style: GoogleFonts.dmSans(fontSize: 12,
+                color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+          ),
           if (appointment.notes.isNotEmpty) ...[
             const SizedBox(height: 3),
-            Text(appointment.notes, style: GoogleFonts.dmSans(fontSize: 12, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+            Text(appointment.notes, style: GoogleFonts.dmSans(fontSize: 12,
+                color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
           ],
         ])),
         _StatusBadge(status: appointment.status),
@@ -228,36 +459,44 @@ class _AppointmentCard extends StatelessWidget {
   }
 }
 
+// ── Lab request card ──────────────────────────────────────────
+
 class _LabRequestCard extends StatelessWidget {
   final LabAppointmentResponse appointment;
   final VoidCallback? onScan;
   final VoidCallback? onConfirm;
   final VoidCallback? onComplete;
-  const _LabRequestCard({required this.appointment, this.onScan, this.onConfirm, this.onComplete});
+  const _LabRequestCard({
+    required this.appointment, this.onScan, this.onConfirm, this.onComplete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final date = DateTime.tryParse(appointment.appointmentDate)?.toLocal();
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final date    = DateTime.tryParse(appointment.appointmentDate)?.toLocal();
     final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '-';
     return AppCard(
       padding: const EdgeInsets.all(14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(child: Text(
-            appointment.patientName.isNotEmpty ? appointment.patientName : 'Patient #${appointment.patientId}',
+            appointment.patientName.isNotEmpty
+                ? appointment.patientName : 'Patient #${appointment.patientId}',
             style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700),
           )),
           _StatusBadge(status: appointment.status),
         ]),
         const SizedBox(height: 6),
-        Text(appointment.testNames.join(', '), style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600)),
+        Text(appointment.testNames.join(', '),
+            style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(height: 3),
         Text('Appointment: $dateStr',
-            style: GoogleFonts.dmSans(fontSize: 12, color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+            style: GoogleFonts.dmSans(fontSize: 12,
+                color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
         if (appointment.notes.isNotEmpty) ...[
           const SizedBox(height: 3),
-          Text(appointment.notes, style: GoogleFonts.dmSans(fontSize: 12, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          Text(appointment.notes, style: GoogleFonts.dmSans(fontSize: 12,
+              color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
         ],
         if (onScan != null || onConfirm != null || onComplete != null) ...[
           const SizedBox(height: 10),
@@ -287,10 +526,73 @@ class _LabRequestCard extends StatelessWidget {
   }
 }
 
+// ── Test tile ─────────────────────────────────────────────────
+
+class _TestTile extends StatelessWidget {
+  final MedicalTestResponse test;
+  final AppProvider app;
+  const _TestTile({required this.test, required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final date    = test.date != null ? DateTime.tryParse(test.date!)?.toLocal() : null;
+    final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '-';
+    final labName = app.labName(test.labId) ?? 'Lab #${test.labId}';
+    final patName = app.patientName(test.patientId) ?? 'Patient #${test.patientId}';
+
+    // If result has | separators show as chips, else plain text
+    final parts = test.result.contains('|')
+        ? test.result.split('|').map((s) => s.trim()).toList() : <String>[];
+
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(test.name,
+              style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600))),
+          Text(dateStr, style: GoogleFonts.dmSans(fontSize: 11,
+              color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+        ]),
+        const SizedBox(height: 4),
+        Text('$patName - $labName', style: GoogleFonts.dmSans(fontSize: 12,
+            color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+        if (test.result.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          if (parts.isNotEmpty)
+            Wrap(spacing: 6, runSpacing: 6, children: parts.map((p) {
+              final isAlert = p.toLowerCase().contains('(high)') || p.toLowerCase().contains('(low)');
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isAlert
+                      ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
+                      : (isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF5F7FB)),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: isAlert
+                      ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt).withOpacity(0.3)
+                      : (isDark ? AppColors.darkBorderColor : AppColors.borderColor)),
+                ),
+                child: Text(p, style: GoogleFonts.dmMono(fontSize: 11,
+                    color: isAlert
+                        ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                        : (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
+              );
+            }).toList())
+          else
+            Text(test.result, style: GoogleFonts.dmSans(fontSize: 12.5,
+                color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Complete result dialog ────────────────────────────────────
+
 class _CompleteResultDialog extends StatefulWidget {
   final LabAppointmentResponse appointment;
   const _CompleteResultDialog({required this.appointment});
-
   @override
   State<_CompleteResultDialog> createState() => _CompleteResultDialogState();
 }
@@ -301,16 +603,12 @@ class _CompleteResultDialogState extends State<_CompleteResultDialog> {
   @override
   void initState() {
     super.initState();
-    _controllers = widget.appointment.testNames
-        .map((_) => TextEditingController())
-        .toList();
+    _controllers = widget.appointment.testNames.map((_) => TextEditingController()).toList();
   }
 
   @override
   void dispose() {
-    for (final c in _controllers) {
-      c.dispose();
-    }
+    for (final c in _controllers) c.dispose();
     super.dispose();
   }
 
@@ -323,8 +621,7 @@ class _CompleteResultDialogState extends State<_CompleteResultDialog> {
           for (var i = 0; i < widget.appointment.testNames.length; i++) ...[
             TextField(
               controller: _controllers[i],
-              minLines: 2,
-              maxLines: 4,
+              minLines: 2, maxLines: 4,
               decoration: InputDecoration(
                 labelText: widget.appointment.testNames[i],
                 hintText: 'Write result, values, notes, or normal range',
@@ -343,8 +640,7 @@ class _CompleteResultDialogState extends State<_CompleteResultDialog> {
               final result = _controllers[i].text.trim();
               if (result.isEmpty) return;
               results.add(LabTestResultRequest(
-                name: widget.appointment.testNames[i],
-                result: result,
+                name: widget.appointment.testNames[i], result: result,
               ));
             }
             Navigator.of(context).pop(results);
@@ -356,51 +652,18 @@ class _CompleteResultDialogState extends State<_CompleteResultDialog> {
   }
 }
 
+// ── Status badge ──────────────────────────────────────────────
+
 class _StatusBadge extends StatelessWidget {
   final String status;
   const _StatusBadge({required this.status});
 
   @override
   Widget build(BuildContext context) {
-    final type = status == 'Completed'
-        ? BadgeType.green
-        : status == 'Cancelled'
-            ? BadgeType.red
-            : status == 'Confirmed'
-                ? BadgeType.blue
-                : BadgeType.amber;
+    final type = status == 'Completed' ? BadgeType.green
+        : status == 'Cancelled' ? BadgeType.red
+        : status == 'Confirmed' ? BadgeType.blue
+        : BadgeType.amber;
     return BadgeWidget(label: status, type: type);
-  }
-}
-
-class _TestTile extends StatelessWidget {
-  final MedicalTestResponse test;
-  final AppProvider app;
-  const _TestTile({required this.test, required this.app});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final date = test.date != null ? DateTime.tryParse(test.date!)?.toLocal() : null;
-    final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '-';
-    final labName = app.labName(test.labId) ?? 'Lab #${test.labId}';
-    final patName = app.patientName(test.patientId) ?? 'Patient #${test.patientId}';
-    return AppCard(
-      padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text(test.name, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600))),
-          Text(dateStr, style: GoogleFonts.dmSans(fontSize: 11, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-        ]),
-        const SizedBox(height: 4),
-        Text('$patName - $labName', style: GoogleFonts.dmSans(fontSize: 12,
-            color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-        if (test.result.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(test.result, style: GoogleFonts.dmSans(fontSize: 12.5,
-              color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
-        ],
-      ]),
-    );
   }
 }

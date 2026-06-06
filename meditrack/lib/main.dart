@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/services/app_provider.dart';
+import 'package:meditrack/services/theme_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/screens/login_screen.dart';
 import 'package:meditrack/screens/home_screen.dart';
@@ -22,6 +23,7 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AppProvider()),
       ],
@@ -32,14 +34,16 @@ void main() async {
 
 class MediTrackApp extends StatelessWidget {
   const MediTrackApp({super.key});
+
   @override
   Widget build(BuildContext context) {
+    final themeMode = context.watch<ThemeProvider>().mode;
     return MaterialApp(
       title: 'MediTrack',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       home: const _Splash(),
     );
   }
@@ -66,9 +70,11 @@ class _SplashState extends State<_Splash> {
     if (restored) {
       await app.loadAll(auth.role);
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+      Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()));
     } else {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+      Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LoginScreen()));
     }
   }
 
@@ -86,7 +92,9 @@ class _SplashState extends State<_Splash> {
               decoration: BoxDecoration(
                 gradient: isDark ? AppColors.darkLogoGradient : AppColors.logoGradient,
                 borderRadius: BorderRadius.circular(18),
-                boxShadow: [BoxShadow(color: AppColors.accent.withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 6))],
+                boxShadow: [BoxShadow(
+                    color: AppColors.accent.withOpacity(0.35),
+                    blurRadius: 20, offset: const Offset(0, 6))],
               ),
               child: const Icon(Icons.monitor_heart_outlined, color: Colors.white, size: 34),
             ),
