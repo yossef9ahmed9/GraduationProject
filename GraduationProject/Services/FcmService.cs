@@ -48,7 +48,10 @@ namespace GraduationProject.Services
             lock (_lock)
             {
                 if (_initialized) return;
-                var credPath = _config["Firebase:CredentialPath"]
+
+                // Priority: Environment Variable → appsettings.json
+                var credPath = Environment.GetEnvironmentVariable("FIREBASE_KEY_PATH")
+                    ?? _config["Firebase:CredentialPath"]
                     ?? "firebase-adminsdk.json";
 
                 if (!File.Exists(credPath))

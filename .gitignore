@@ -362,3 +362,13 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /GraduationProject/GraduationProject.csproj
+
+# Firebase Admin SDK credentials — never commit these
+*adminsdk*.json
+firebase-adminsdk.json
+secrets/
+
+# Local secrets — never commit
+appsettings.Development.json
+appsettings.*.json
+!appsettings.json
