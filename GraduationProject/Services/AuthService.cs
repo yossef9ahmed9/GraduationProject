@@ -197,8 +197,9 @@ namespace GraduationProject.Services
             {
                 Name         = request.FullName,
                 Phone        = request.Phone,
+                Email        = request.Email,
                 RelationType = request.RelationType,
-                PatientId    = request.PatientId
+                PatientId    = null,   // linked later via /api/relative-requests/{id}/approve
             };
 
             await _context.Relatives.AddAsync(relative, cancellationToken);

@@ -1,23 +1,32 @@
 namespace GraduationProject.Contracts.Ambulances
 {
-    // ── Response ──────────────────────────────────────────────────────────────
     public record AmbulanceResponse(
-        int      Id,
-        string   Email,
-        string   StationName,
-        string   Phone,
-        string   AvailabilityStatus,   // Available / Busy / OutOfService
-        string   LicensePlate,
-        string   DriverName,
-        string   DriverPhone,
-        double?  Latitude,
-        double?  Longitude,
+        int       Id,
+        string    Email,
+        string    StationName,
+        string    Phone,
+        string    AvailabilityStatus,
+        string    LicensePlate,
+        string    DriverName,
+        string    DriverPhone,
+        double?   Latitude,
+        double?   Longitude,
         DateTime? LastLocationUpdate,
-        int      ActiveDispatchCount   // 0 when Available
+        int       ActiveDispatchCount
     );
 
-    // ── Requests ──────────────────────────────────────────────────────────────
+    public record AmbulanceDispatchSummary(
+        int       Id,
+        DateTime  DispatchedAt,
+        DateTime? ArrivedAt,
+        DateTime? ResolvedAt,
+        string    Status,
+        int       PatientId,
+        string    PatientName,
+        string?   Notes
+    );
+
     public record UpdateAmbulanceAvailabilityRequest(
-        string AvailabilityStatus
+        string AvailabilityStatus  // Available / Busy / NotAvailable
     );
 }

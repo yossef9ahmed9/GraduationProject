@@ -108,5 +108,47 @@ namespace GraduationProject.Controllers
                 ? NoContent()
                 : result.ToProblem();
         }
+
+        // ── Doctor approves a pending follow-up request ──────────
+        [HttpPut("{id}/approve")]
+        [Authorize(Roles = "Doctor")]
+        public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
+        {
+            var result = await _service.SetStatusAsync(id, "Approved", cancellationToken);
+            return result.IsSuccess ? NoContent() : result.ToProblem();
+        }
+
+        // ── Doctor rejects a pending follow-up request ───────────
+        [HttpPut("{id}/reject")]
+        [Authorize(Roles = "Doctor")]
+        public async Task<IActionResult> Reject(int id, CancellationToken cancellationToken)
+        {
+            var result = await _service.SetStatusAsync(id, "Rejected", cancellationToken);
+            return result.IsSuccess ? NoContent() : result.ToProblem();
+        }
+
+        // ── Patient cancels an approved or pending follow-up ──────
+        [HttpPut("{id}/cancel")]
+        [Authorize(Roles = "Patient")]
+        public async Task<IActionResult> Cancel(int id, CancellationToken cancellationToken)
+        {
+            var result = await _service.SetStatusAsync(id, "Cancelled", cancellationToken);
+            return result.IsSuccess ? NoContent() : result.ToProblem();
+        }
+
+        // ── Doctor writes prescription on an approved follow-up ───
+        [HttpPut("{id}/prescription")]
+        [Authorize(Roles = "Doctor")]
+        public async Task<IActionResult> UpdatePrescription(
+            int id,
+            [FromBody] UpdatePrescriptionRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _service.UpdatePrescriptionAsync(
+                id, request.TreatmentPlan, request.Notes, cancellationToken);
+            return result.IsSuccess ? NoContent() : result.ToProblem();
+        }
     }
+
+    public record UpdatePrescriptionRequest(string TreatmentPlan, string Notes);
 }

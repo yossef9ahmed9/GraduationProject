@@ -210,6 +210,17 @@ class _TestsPageState extends State<TestsPage> {
     });
   }
 
+  // ── Popup: show all test results in a bottom sheet ───────────
+  void _showAllTestsPopup(BuildContext context,
+      List<MedicalTestResponse> tests, AppProvider app, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AllTestsSheet(tests: tests, app: app),
+    );
+  }
+
   // OCR for Lab (linked to appointment)
   Future<void> _scanOcr(LabAppointmentResponse appointment) async {
     await _runOcr(
@@ -271,9 +282,48 @@ class _TestsPageState extends State<TestsPage> {
 
     final patient = role == UserRole.patient
         ? app.patientByEmail(auth.user?.email ?? '') : null;
-    final visibleTests        = patient != null ? app.testsForPatient(patient.id) : app.tests;
-    final visibleAppointments = patient != null
-        ? app.labAppointmentsForPatient(patient.id) : app.labAppointments;
+
+    // ── Visibility rules ──────────────────────────────────────
+    // Patient  → own tests only
+    // Doctor   → tests for their linked patients only
+    // Relative → tests for their linked patient only
+    // Lab      → tests from appointments with this lab only
+    // Admin    → everything
+    List<MedicalTestResponse> visibleTests;
+    List<LabAppointmentResponse> visibleAppointments;
+
+    if (role == UserRole.patient && patient != null) {
+      visibleTests        = app.testsForPatient(patient.id);
+      visibleAppointments = app.labAppointmentsForPatient(patient.id);
+    } else if (role == UserRole.relative) {
+      // Relative sees only their linked patient's data
+      final linked = app.patients.isNotEmpty ? app.patients.first : null;
+      visibleTests        = linked != null ? app.testsForPatient(linked.id) : [];
+      visibleAppointments = linked != null ? app.labAppointmentsForPatient(linked.id) : [];
+    } else if (role == UserRole.doctor) {
+      // Doctor sees only patients they follow up with
+      final myPatientIds = app.followUps
+          .map((f) => f.patientId)
+          .toSet();
+      visibleTests        = app.tests.where((t) => myPatientIds.contains(t.patientId)).toList();
+      visibleAppointments = app.labAppointments.where((a) => myPatientIds.contains(a.patientId)).toList();
+    } else if (role == UserRole.lab) {
+      // Lab sees only appointments & tests for this specific lab
+      final myLab = app.labs
+          .where((l) => l.email.toLowerCase() == (auth.user?.email ?? '').toLowerCase())
+          .firstOrNull;
+      if (myLab != null) {
+        visibleAppointments = app.labAppointments.where((a) => a.labId == myLab.id).toList();
+        visibleTests        = app.tests.where((t) => t.labId == myLab.id).toList();
+      } else {
+        visibleAppointments = app.labAppointments;
+        visibleTests        = app.tests;
+      }
+    } else {
+      // Admin
+      visibleTests        = app.tests;
+      visibleAppointments = app.labAppointments;
+    }
 
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -322,13 +372,23 @@ class _TestsPageState extends State<TestsPage> {
                   style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  role == UserRole.lab
-                      ? '${visibleAppointments.length} request${visibleAppointments.length == 1 ? "" : "s"} waiting or completed'
-                      : '${visibleTests.length} result${visibleTests.length == 1 ? "" : "s"} saved',
-                  style: GoogleFonts.dmSans(fontSize: 13,
-                      color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
-                ),
+                Row(children: [
+                  Expanded(child: Text(
+                    role == UserRole.lab
+                        ? '${visibleAppointments.length} request${visibleAppointments.length == 1 ? "" : "s"} waiting or completed'
+                        : '${visibleTests.length} result${visibleTests.length == 1 ? "" : "s"} saved',
+                    style: GoogleFonts.dmSans(fontSize: 13,
+                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+                  )),
+                  // Popup: show all my results in a bottom sheet
+                  if (role != UserRole.lab && visibleTests.isNotEmpty)
+                    TextButton.icon(
+                      onPressed: () => _showAllTestsPopup(context, visibleTests, app, isDark),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 14),
+                      label: Text('View All',
+                          style: GoogleFonts.dmSans(fontSize: 12)),
+                    ),
+                ]),
 
                 // Scan button for patient
                 if (role == UserRole.patient && app.labs.isNotEmpty) ...[
@@ -383,16 +443,9 @@ class _TestsPageState extends State<TestsPage> {
             if (visibleTests.isEmpty)
               const SliverToBoxAdapter(
                   child: EmptyState(message: 'No test results found', icon: Icons.description_outlined))
+            // Tests are shown in the popup only — tap "View All" above
             else
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                        (_, i) => _TestTile(test: visibleTests[i], app: app),
-                    childCount: visibleTests.length,
-                  ),
-                ),
-              ),
+              const SliverToBoxAdapter(child: SizedBox.shrink()),
           ],
         ],
       ),
@@ -607,7 +660,9 @@ class _ManualEntryPanel extends StatelessWidget {
             controller: e.value,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
-              labelText: e.key, hintText: 'e.g. 13.5', isDense: true,
+              labelText: e.key,
+              hintText: 'Enter value for ${e.key}',
+              isDense: true,
             ),
           ),
         )).toList()),
@@ -853,6 +908,53 @@ class _TestTile extends StatelessWidget {
   }
 }
 
+// ── All Tests Bottom Sheet ────────────────────────────────────
+class _AllTestsSheet extends StatelessWidget {
+  final List<MedicalTestResponse> tests;
+  final AppProvider app;
+  const _AllTestsSheet({required this.tests, required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Center(child: Container(
+          width: 36, height: 4,
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        )),
+        Row(children: [
+          Expanded(child: Text('All Test Results',
+              style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.w700))),
+          Text('${tests.length} total',
+              style: GoogleFonts.dmSans(fontSize: 13,
+                  color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+        ]),
+        const SizedBox(height: 16),
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.65,
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: tests.length,
+            itemBuilder: (_, i) => _TestTile(test: tests[i], app: app),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
 // ── Complete result dialog ────────────────────────────────────
 
 class _CompleteResultDialog extends StatefulWidget {
@@ -903,11 +1005,13 @@ class _CompleteResultDialogState extends State<_CompleteResultDialog> {
             final results = <LabTestResultRequest>[];
             for (var i = 0; i < widget.appointment.testNames.length; i++) {
               final result = _controllers[i].text.trim();
-              if (result.isEmpty) return;
+              // Allow empty results — backend validates, not Flutter
               results.add(LabTestResultRequest(
-                name: widget.appointment.testNames[i], result: result,
+                name: widget.appointment.testNames[i],
+                result: result.isNotEmpty ? result : 'Pending',
               ));
             }
+            if (results.isEmpty) return;
             Navigator.of(context).pop(results);
           },
           child: const Text('Save'),

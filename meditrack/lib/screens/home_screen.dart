@@ -20,6 +20,9 @@ import 'package:meditrack/screens/pages/ambulances_page.dart';
 import 'package:meditrack/screens/pages/profile_page.dart';
 import 'package:meditrack/screens/pages/notifications_page.dart';
 import 'package:meditrack/screens/pages/lab_request_page.dart';
+import 'package:meditrack/screens/pages/progress_page.dart';
+import 'package:meditrack/screens/pages/relative_requests_page.dart';
+import 'package:meditrack/screens/pages/relative_chat_page.dart';
 
 class _NavItem {
   final String id, label;
@@ -29,22 +32,25 @@ class _NavItem {
 }
 
 const _patientNav = [
-  _NavItem('dashboard',    'Dashboard',    Icons.grid_view_rounded,        section: 'Main'),
+  _NavItem('dashboard',    'Home',          Icons.home_outlined,            section: 'Main'),
   _NavItem('doctors',      'Doctors',      Icons.medical_services_outlined),
   _NavItem('labs',         'Labs',         Icons.science_outlined),
   _NavItem('vitals',       'My Vitals',    Icons.monitor_heart_outlined,   section: 'Health'),
+  _NavItem('progress',     'My Progress',  Icons.show_chart_rounded),
   _NavItem('tests',        'My Tests',     Icons.description_outlined),
   _NavItem('followups',    'Follow-ups',   Icons.assignment_outlined),
+  _NavItem('requests',     'Link Requests',Icons.person_add_outlined),
   _NavItem('ambulances',   'Ambulances',   Icons.emergency_outlined,       section: 'Emergency'),
   _NavItem('profile',      'My Account',   Icons.person_outline,           section: 'Settings'),
 ];
 const _doctorNav = [
-  _NavItem('dashboard',  'Dashboard',   Icons.grid_view_rounded,   section: 'Main'),
-  _NavItem('patients',   'My Patients', Icons.people_outline),
-  _NavItem('vitals',     'Vital Signs', Icons.monitor_heart_outlined),
-  _NavItem('followups',  'Follow-ups',  Icons.assignment_outlined, section: 'Medical'),
-  _NavItem('tests',      'Test Results',Icons.description_outlined),
-  _NavItem('profile',    'My Account',  Icons.person_outline,      section: 'Settings'),
+  _NavItem('dashboard',  'Home',              Icons.home_outlined,       section: 'Main'),
+  _NavItem('patients',   'My Patients',      Icons.people_outline),
+  _NavItem('vitals',     'Vital Signs',      Icons.monitor_heart_outlined),
+  _NavItem('progress',   'Patient Progress', Icons.show_chart_rounded),
+  _NavItem('followups',  'Follow-ups',       Icons.assignment_outlined, section: 'Medical'),
+  _NavItem('tests',      'Test Results',     Icons.description_outlined),
+  _NavItem('profile',    'My Account',       Icons.person_outline,      section: 'Settings'),
 ];
 const _labNav = [
   _NavItem('dashboard', 'Dashboard',   Icons.grid_view_rounded,   section: 'Main'),
@@ -53,16 +59,18 @@ const _labNav = [
   _NavItem('profile',   'My Account',  Icons.person_outline,      section: 'Settings'),
 ];
 const _relativeNav = [
-  _NavItem('dashboard',  'Dashboard',      Icons.grid_view_rounded,        section: 'Main'),
-  _NavItem('vitals',     'Patient Vitals', Icons.monitor_heart_outlined),
-  _NavItem('followups',  'Follow-ups',     Icons.assignment_outlined),
-  _NavItem('ambulances', 'Ambulances',     Icons.emergency_outlined,       section: 'Emergency'),
-  _NavItem('profile',    'My Account',     Icons.person_outline,           section: 'Settings'),
+  _NavItem('dashboard',    'Dashboard',      Icons.grid_view_rounded,        section: 'Main'),
+  _NavItem('vitals',       'Patient Vitals', Icons.monitor_heart_outlined),
+  _NavItem('progress',     'Progress',       Icons.show_chart_rounded),
+  _NavItem('followups',    'Follow-ups',     Icons.assignment_outlined),
+  _NavItem('relative-chat','Care Team',      Icons.chat_bubble_outline_rounded),
+  _NavItem('requests',     'Link Requests',  Icons.person_add_outlined),
+  _NavItem('ambulances',   'Ambulances',     Icons.emergency_outlined,       section: 'Emergency'),
+  _NavItem('profile',      'My Account',     Icons.person_outline,           section: 'Settings'),
 ];
 const _ambulanceNav = [
   _NavItem('dashboard',  'Dashboard',  Icons.grid_view_rounded,  section: 'Main'),
-  _NavItem('ambulances', 'Fleet',      Icons.emergency_outlined),
-  _NavItem('patients',   'Patients',   Icons.people_outline,     section: 'Emergency'),
+  _NavItem('ambulances', 'Dispatches', Icons.emergency_outlined),
   _NavItem('profile',    'My Account', Icons.person_outline,     section: 'Settings'),
 ];
 const _adminNav = [
@@ -101,6 +109,9 @@ Widget _buildPage(String id, UserRole role) {
     case 'sensors':    return const SensorsPage();
     case 'ambulances': return const AmbulancesPage();
     case 'profile':    return const ProfilePage();
+    case 'progress':   return const ProgressPage();
+    case 'requests':   return const RelativeRequestsPage();
+    case 'relative-chat': return const RelativeChatPage();
     case 'lab-request':return const LabRequestPage();
     default:           return const Center(child: Text('Page not found'));
   }

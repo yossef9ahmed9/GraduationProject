@@ -125,29 +125,6 @@ class ApiService {
     }
   }
 
-  Future<ApiResult<T>> _patchWithResponse<T>(
-    String path,
-    Map<String, dynamic> body,
-    T Function(dynamic) parse,
-  ) async {
-    try {
-      final res = await http.patch(
-        Uri.parse('$_base$path'),
-        headers: _headers,
-        body: jsonEncode(body),
-      ).timeout(_requestTimeout);
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        return ApiResult.success(
-          res.body.isNotEmpty ? parse(jsonDecode(res.body)) : parse({}),
-          res.statusCode,
-        );
-      }
-      return ApiResult.failure(_errorMsg(res), res.statusCode);
-    } catch (e) {
-      return ApiResult.failure(e.toString(), null);
-    }
-  }
-
   Future<ApiResult<bool>> _delete(String path) async {
     try {
       final res = await http.delete(
@@ -281,6 +258,16 @@ class ApiService {
   }) =>
       _get(
         '/patients/doctor?pageNumber=$pageNumber&pageSize=$pageSize',
+        (j) => _parseList(j, PatientResponse.fromJson),
+      );
+
+  /// GET /api/patients/relative — patients approved-linked to the logged-in relative
+  Future<ApiResult<List<PatientResponse>>> getRelativePatients({
+    int pageNumber = 1,
+    int pageSize = 100,
+  }) =>
+      _get(
+        '/patients/relative?pageNumber=$pageNumber&pageSize=$pageSize',
         (j) => _parseList(j, PatientResponse.fromJson),
       );
 
@@ -517,6 +504,24 @@ class ApiService {
   /// DELETE /api/followups/{id}
   Future<ApiResult<bool>> deleteFollowUp(int id) =>
       _delete('/followups/$id');
+
+  /// PUT /api/followups/{id}/approve  [Doctor]
+  Future<ApiResult<bool>> approveFollowUp(int id) =>
+      _put('/followups/$id/approve', {});
+
+  /// PUT /api/followups/{id}/reject   [Doctor]
+  Future<ApiResult<bool>> rejectFollowUp(int id) =>
+      _put('/followups/$id/reject', {});
+
+  /// PUT /api/followups/{id}/cancel   [Patient]
+  Future<ApiResult<bool>> cancelFollowUp(int id) =>
+      _put('/followups/$id/cancel', {});
+
+  /// PUT /api/followups/{id}/prescription  [Doctor]
+  Future<ApiResult<bool>> updatePrescription(
+      int id, String treatmentPlan, String notes) =>
+      _put('/followups/$id/prescription',
+          {'treatmentPlan': treatmentPlan, 'notes': notes});
 
   // ════════════════════════════════════════════════════════════════
   // VITAL SIGNS  — /api/vitalsigns
@@ -903,7 +908,7 @@ class ApiService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // PATIENT PROGRESS — /api/patientprogress
+  // PATIENT PROGRESS — /api/patient-progress
   // ═══════════════════════════════════════════════════════════════════
 
   Future<ApiResult<PatientProgressResponse>> getPatientProgress(
@@ -917,7 +922,7 @@ class ApiService {
       if (to != null) 'to=${Uri.encodeComponent(to.toIso8601String())}',
       'limit=$limit',
     ].join('&');
-    return _get('/patientprogress/$patientId?$params',
+    return _get('/patient-progress/$patientId?$params',
         (j) => PatientProgressResponse.fromJson(j as Map<String, dynamic>));
   }
 
@@ -944,6 +949,67 @@ class ApiService {
 
   Future<ApiResult<bool>> clearConversationForEveryone(String otherEmail) =>
       _delete('/chat/conversation/${Uri.encodeComponent(otherEmail)}/all');
+
+  // ── Ambulance sign in/out ─────────────────────────────────────
+  Future<ApiResult<bool>> ambulanceSignIn() async {
+    try {
+      final res = await http.post(Uri.parse('$_base/ambulances/signin'), headers: _headers).timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) { return ApiResult.failure(e.toString(), null); }
+  }
+
+  Future<ApiResult<bool>> ambulanceSignOut() async {
+    try {
+      final res = await http.post(Uri.parse('$_base/ambulances/signout'), headers: _headers).timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) { return ApiResult.failure(e.toString(), null); }
+  }
+
+  // ── Dispatch requests ─────────────────────────────────────────
+  Future<ApiResult<List<dynamic>>> getMyActiveDispatches() =>
+      _get('/dispatch-requests/my', (j) => j as List);
+
+  Future<ApiResult<bool>> acceptDispatch(int id) =>
+      _put('/dispatch-requests/$id/accept', {});
+
+  Future<ApiResult<bool>> rejectDispatch(int id) =>
+      _put('/dispatch-requests/$id/reject', {});
+
+  // ── Relative requests ─────────────────────────────────────────
+  Future<ApiResult<Map<String, dynamic>>> sendRelativeRequest(int patientId) =>
+      _post('/relative-requests', {'patientId': patientId}, (j) => j as Map<String, dynamic>);
+
+  Future<ApiResult<List<dynamic>>> getRelativeRequestsForPatient() =>
+      _get('/relative-requests/patient/me', (j) => j as List);
+
+  Future<ApiResult<List<dynamic>>> getMyRelativeRequestStatus() =>
+      _get('/relative-requests/my-status', (j) => j as List);
+
+  Future<ApiResult<bool>> approveRelativeRequest(int requestId) async {
+    try {
+      final res = await http.put(Uri.parse('$_base/relative-requests/$requestId/approve'), headers: _headers).timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) { return ApiResult.failure(e.toString(), null); }
+  }
+
+  Future<ApiResult<bool>> rejectRelativeRequest(int requestId) async {
+    try {
+      final res = await http.put(Uri.parse('$_base/relative-requests/$requestId/reject'), headers: _headers).timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) { return ApiResult.failure(e.toString(), null); }
+  }
+
+  Future<ApiResult<List<dynamic>>> searchPatients(String query) =>
+      _get('/relative-requests/search-patients?q=${Uri.encodeComponent(query)}', (j) => j as List);
+
 }
 
 // Global singleton

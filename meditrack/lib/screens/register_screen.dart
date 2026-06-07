@@ -8,6 +8,7 @@ import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/home_screen.dart';
+import 'package:meditrack/screens/relative_link_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -72,8 +73,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       case UserRole.relative:
         return {'fullName': _nameCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
           'password': _passCtrl.text, 'confirmPassword': _cpassCtrl.text,
-          'phone': _phoneCtrl.text.trim(), 'relationType': _relationCtrl.text.trim(),
-          'patientId': int.tryParse(_patientIdCtrl.text.trim()) ?? 0};
+          'phone': _phoneCtrl.text.trim(), 'relationType': 'Family'};
       case UserRole.ambulance:
         return {'stationName': _stationCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
           'password': _passCtrl.text, 'confirmPassword': _cpassCtrl.text,
@@ -109,12 +109,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
               onPressed: () async {
                 final body = _buildBody();
                 if (body == null || _selectedRole == null) return;
-                final ok = await auth.register(_selectedRole!, body);
-                if (ok && mounted) {
-                  final app = context.read<AppProvider>();
-                  await app.loadAll(auth.role);
-                  if (mounted) Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const HomeScreen()), (_) => false);
+                final role   = _selectedRole!;
+                final appPrv = context.read<AppProvider>();
+                final ok     = await auth.register(role, body);
+                if (!mounted) return;
+                if (ok) {
+                  await appPrv.loadAll(auth.role);
+                  if (!mounted) return;
+                  if (role == UserRole.relative) {
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const RelativeLinkScreen()),
+                      (_) => false);
+                  } else {
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const HomeScreen()),
+                      (_) => false);
+                  }
                 }
               }),
             const SizedBox(height: 10),
@@ -192,8 +202,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         add('Password', _passCtrl, obscure: true);
         add('Confirm Password', _cpassCtrl, obscure: true);
         add('Phone', _phoneCtrl, kb: TextInputType.phone);
-        add('Relation Type', _relationCtrl, hint: 'Parent / Spouse / Sibling');
-        add('Patient ID', _patientIdCtrl, kb: TextInputType.number, hint: '12');
+        fields.add(Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(children: [
+            Icon(Icons.info_outline_rounded, size: 16,
+                color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
+            const SizedBox(width: 8),
+            Expanded(child: Text(
+              "After registering, you'll search for your patient and send a link request.",
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
+            )),
+          ]),
+        ));
         break;
       case UserRole.ambulance:
         add('Station Name', _stationCtrl, hint: 'Nasr City Station');

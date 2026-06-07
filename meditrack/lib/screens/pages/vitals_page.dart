@@ -1,6 +1,5 @@
 
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:meditrack/models/models.dart';
@@ -19,7 +18,6 @@ class VitalsPage extends StatefulWidget {
 class _VitalsPageState extends State<VitalsPage> {
   int? _selectedPatientId;
   List<VitalSignsResponse> _history = [];
-  PatientProgressResponse? _progress;
   bool _loading = false;
   String? _error;
 
@@ -43,11 +41,10 @@ class _VitalsPageState extends State<VitalsPage> {
     setState(() { _loading = true; _error = null; _selectedPatientId = patientId; });
     try {
       final res = await apiService.getVitalsByPatient(patientId);
-      final progressRes = await apiService.getPatientProgress(patientId, limit: 100);
+      await apiService.getPatientProgress(patientId, limit: 100);
       if (res.ok) {
         setState(() {
           _history = res.data ?? [];
-          _progress = progressRes.ok ? progressRes.data : null;
           _loading = false;
         });
       } else {

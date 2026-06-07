@@ -131,5 +131,41 @@ namespace GraduationProject.Services
 
             return Result.Success();
         }
+
+        public async Task<Result> SetStatusAsync(
+            int id, string status, CancellationToken cancellationToken = default)
+        {
+            var followUp = await _context.FollowUps
+                .FindAsync(new object[] { id }, cancellationToken);
+
+            if (followUp is null)
+                return Result.Failure(FollowUpErrors.FollowUpNotFound);
+
+            followUp.Status     = status;
+            followUp.LastUpdate = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
+            return Result.Success();
+        }
+
+        public async Task<Result> UpdatePrescriptionAsync(
+            int id, string treatmentPlan, string notes,
+            CancellationToken cancellationToken = default)
+        {
+            var followUp = await _context.FollowUps
+                .FindAsync(new object[] { id }, cancellationToken);
+
+            if (followUp is null)
+                return Result.Failure(FollowUpErrors.FollowUpNotFound);
+
+            if (!string.IsNullOrWhiteSpace(treatmentPlan))
+                followUp.TreatmentPlan = treatmentPlan;
+
+            if (!string.IsNullOrWhiteSpace(notes))
+                followUp.Notes = notes;
+
+            followUp.LastUpdate = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
+            return Result.Success();
+        }
     }
 }

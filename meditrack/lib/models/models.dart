@@ -248,13 +248,16 @@ class LabResponse {
 
 // ── Follow-Up ─────────────────────────────────────────────────
 class FollowUpResponse {
-  final int id;
-  final int patientId;
-  final int doctorId;
-  final String diagnosis;
-  final String treatmentPlan;
-  final String notes;
+  final int     id;
+  final int     patientId;
+  final int     doctorId;
+  final String  diagnosis;
+  final String  treatmentPlan;
+  final String  notes;
   final String? lastUpdate;
+  final String  severity;
+  final String  status;
+  final String? nextVisitDate;
 
   const FollowUpResponse({
     required this.id,
@@ -264,25 +267,33 @@ class FollowUpResponse {
     required this.treatmentPlan,
     required this.notes,
     this.lastUpdate,
+    this.severity = 'Low',
+    this.status   = 'Pending',
+    this.nextVisitDate,
   });
 
   factory FollowUpResponse.fromJson(Map<String, dynamic> j) => FollowUpResponse(
-    id:            j['id'] as int? ?? 0,
-    patientId:     j['patientId'] as int? ?? 0,
-    doctorId:      j['doctorId'] as int? ?? 0,
-    diagnosis:     j['diagnosis'] as String? ?? '',
+    id:            j['id']            as int?    ?? 0,
+    patientId:     j['patientId']     as int?    ?? 0,
+    doctorId:      j['doctorId']      as int?    ?? 0,
+    diagnosis:     j['diagnosis']     as String? ?? '',
     treatmentPlan: j['treatmentPlan'] as String? ?? '',
-    notes:         j['notes'] as String? ?? '',
-    lastUpdate:    j['lastUpdate'] as String? ?? j['updatedAt'] as String?,
+    notes:         j['notes']         as String? ?? '',
+    lastUpdate:    j['lastUpdate']    as String? ?? j['updatedAt'] as String?,
+    severity:      j['severity']      as String? ?? 'Low',
+    status:        j['status']        as String? ?? 'Pending',
+    nextVisitDate: j['nextVisitDate'] as String?,
   );
 }
 
 class FollowUpRequest {
-  final String diagnosis;
-  final String treatmentPlan;
-  final String notes;
-  final int patientId;
-  final int doctorId;
+  final String    diagnosis;
+  final String    treatmentPlan;
+  final String    notes;
+  final int       patientId;
+  final int       doctorId;
+  final String    severity;
+  final DateTime? nextVisitDate;
 
   const FollowUpRequest({
     required this.diagnosis,
@@ -290,6 +301,8 @@ class FollowUpRequest {
     required this.notes,
     required this.patientId,
     required this.doctorId,
+    this.severity     = 'Low',
+    this.nextVisitDate,
   });
 
   Map<String, dynamic> toJson() => {
@@ -298,6 +311,8 @@ class FollowUpRequest {
     'notes':         notes,
     'patientId':     patientId,
     'doctorId':      doctorId,
+    'severity':      severity,
+    if (nextVisitDate != null) 'nextVisitDate': nextVisitDate!.toIso8601String(),
   };
 }
 
@@ -747,85 +762,141 @@ class AmbulanceResponse {
   );
 }
 
-class PatientProgressPoint {
-  final String timeStamp;
-  final int heartRate;
-  final double oxygenSaturation;
-  final bool emergencyStatus;
-
-  const PatientProgressPoint({
-    required this.timeStamp,
-    required this.heartRate,
-    required this.oxygenSaturation,
-    required this.emergencyStatus,
-  });
-
-  factory PatientProgressPoint.fromJson(Map<String, dynamic> j) =>
-      PatientProgressPoint(
-        timeStamp: j['timeStamp'] as String? ?? '',
-        heartRate: j['heartRate'] as int? ?? 0,
-        oxygenSaturation: (j['oxygenSaturation'] as num?)?.toDouble() ?? 0,
-        emergencyStatus: j['emergencyStatus'] as bool? ?? false,
-      );
-}
-
-class PatientProgressSummary {
-  final int totalReadings;
-  final double averageHeartRate;
-  final double averageOxygenSaturation;
-  final int minHeartRate;
-  final int maxHeartRate;
-  final double minOxygenSaturation;
-  final double maxOxygenSaturation;
-  final int emergencyReadings;
-
-  const PatientProgressSummary({
-    required this.totalReadings,
-    required this.averageHeartRate,
-    required this.averageOxygenSaturation,
-    required this.minHeartRate,
-    required this.maxHeartRate,
-    required this.minOxygenSaturation,
-    required this.maxOxygenSaturation,
-    required this.emergencyReadings,
-  });
-
-  factory PatientProgressSummary.fromJson(Map<String, dynamic> j) =>
-      PatientProgressSummary(
-        totalReadings: j['totalReadings'] as int? ?? 0,
-        averageHeartRate: (j['averageHeartRate'] as num?)?.toDouble() ?? 0,
-        averageOxygenSaturation: (j['averageOxygenSaturation'] as num?)?.toDouble() ?? 0,
-        minHeartRate: j['minHeartRate'] as int? ?? 0,
-        maxHeartRate: j['maxHeartRate'] as int? ?? 0,
-        minOxygenSaturation: (j['minOxygenSaturation'] as num?)?.toDouble() ?? 0,
-        maxOxygenSaturation: (j['maxOxygenSaturation'] as num?)?.toDouble() ?? 0,
-        emergencyReadings: j['emergencyReadings'] as int? ?? 0,
-      );
-}
-
+// ── Patient Progress ──────────────────────────────────────────
 class PatientProgressResponse {
   final int patientId;
   final String patientName;
-  final PatientProgressSummary summary;
-  final List<PatientProgressPoint> points;
+  final List<VitalPoint> vitals;
+  final List<TestPoint> tests;
 
   const PatientProgressResponse({
     required this.patientId,
     required this.patientName,
-    required this.summary,
-    required this.points,
+    required this.vitals,
+    required this.tests,
   });
 
   factory PatientProgressResponse.fromJson(Map<String, dynamic> j) =>
       PatientProgressResponse(
-        patientId: j['patientId'] as int? ?? 0,
+        patientId:   j['patientId']   as int?    ?? 0,
         patientName: j['patientName'] as String? ?? '',
-        summary: PatientProgressSummary.fromJson(
-            j['summary'] as Map<String, dynamic>? ?? {}),
-        points: (j['points'] as List? ?? [])
-            .map((e) => PatientProgressPoint.fromJson(e as Map<String, dynamic>))
-            .toList(),
+        vitals: (j['points'] as List? ?? [])
+            .map((e) => VitalPoint.fromJson(e as Map<String, dynamic>)).toList(),
+        tests: (j['tests'] as List? ?? [])
+            .map((e) => TestPoint.fromJson(e as Map<String, dynamic>)).toList(),
       );
+}
+
+class VitalPoint {
+  final DateTime timestamp;
+  final int      heartRate;
+  final double   oxygenSaturation;
+  final bool     isEmergency;
+
+  const VitalPoint({
+    required this.timestamp,
+    required this.heartRate,
+    required this.oxygenSaturation,
+    required this.isEmergency,
+  });
+
+  factory VitalPoint.fromJson(Map<String, dynamic> j) => VitalPoint(
+    timestamp:        DateTime.tryParse(j['timestamp'] as String? ?? '')?.toLocal() ?? DateTime.now(),
+    heartRate:        j['heartRate']        as int?    ?? 0,
+    oxygenSaturation: (j['oxygenSaturation'] as num?)?.toDouble() ?? 0,
+    isEmergency:      j['emergencyStatus']  as bool?   ?? false,
+  );
+}
+
+class TestPoint {
+  final DateTime date;
+  final String   name;
+  final String   result;
+  final int      labId;
+  final String   labName;
+
+  const TestPoint({
+    required this.date,
+    required this.name,
+    required this.result,
+    required this.labId,
+    required this.labName,
+  });
+
+  factory TestPoint.fromJson(Map<String, dynamic> j) => TestPoint(
+    date:    DateTime.tryParse(j['date']    as String? ?? '')?.toLocal() ?? DateTime.now(),
+    name:    j['name']    as String? ?? '',
+    result:  j['result']  as String? ?? '',
+    labId:   j['labId']   as int?    ?? 0,
+    labName: j['labName'] as String? ?? '',
+  );
+}
+
+// ── Relative Request ──────────────────────────────────────────
+class RelativeRequest {
+  final int      id;
+  final int      relativeId;
+  final String   relativeName;
+  final String   relativePhone;
+  final String   relationType;
+  final int      patientId;
+  final String   status;
+  final DateTime createdAt;
+
+  const RelativeRequest({
+    required this.id,
+    required this.relativeId,
+    required this.relativeName,
+    required this.relativePhone,
+    required this.relationType,
+    required this.patientId,
+    required this.status,
+    required this.createdAt,
+  });
+
+  factory RelativeRequest.fromJson(Map<String, dynamic> j) => RelativeRequest(
+    id:            j['id']            as int?    ?? 0,
+    relativeId:    j['relativeId']    as int?    ?? 0,
+    relativeName:  j['relativeName']  as String? ?? '',
+    relativePhone: j['relativePhone'] as String? ?? '',
+    relationType:  j['relationType']  as String? ?? '',
+    patientId:     j['patientId']     as int?    ?? 0,
+    status:        j['status']        as String? ?? '',
+    createdAt:     DateTime.tryParse(j['createdAt'] as String? ?? '')?.toLocal() ?? DateTime.now(),
+  );
+}
+
+// ── Patient search result ─────────────────────────────────────
+class PatientSearchResult {
+  final int    id;
+  final String name;
+  final String email;
+  final String phone;
+  final String gender;
+
+  const PatientSearchResult({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.phone,
+    required this.gender,
+  });
+
+  factory PatientSearchResult.fromJson(Map<String, dynamic> j) =>
+      PatientSearchResult(
+        id:     j['id']     as int?    ?? 0,
+        name:   j['name']   as String? ?? '',
+        email:  j['email']  as String? ?? '',
+        phone:  j['phone']  as String? ?? '',
+        gender: j['gender'] as String? ?? '',
+      );
+
+  String get initials {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    if (parts[0].isNotEmpty) return parts[0][0].toUpperCase();
+    return 'P';
+  }
 }
 
 // ── Heart Risk ────────────────────────────────────────────────

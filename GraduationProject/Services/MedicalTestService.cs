@@ -124,5 +124,21 @@ namespace GraduationProject.Services
 
             return Result.Success();
         }
+
+        public async Task<PagedResponse<MedicalTestResponse>> GetByPatientIdsAsync(
+            IEnumerable<int> patientIds,
+            int pageNumber = 1,
+            int pageSize = 10,
+            CancellationToken cancellationToken = default)
+        {
+            return await _context.MedicalTests
+                .AsNoTracking()
+                .Where(t => patientIds.Contains(t.PatientId))
+                .OrderByDescending(t => t.Date)
+                .Select(t => new MedicalTestResponse(
+                    t.Id, t.Name, t.Result, t.Date, t.PatientId, t.LabId,
+                    t.ImagePath == null ? null : $"/{t.ImagePath}"))
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+        }
     }
 }

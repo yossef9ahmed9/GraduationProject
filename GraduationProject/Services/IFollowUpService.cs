@@ -11,5 +11,7 @@ namespace GraduationProject.Services
         Task<Result<FollowUpResponse>> AddAsync(FollowUpRequest request, CancellationToken cancellationToken = default);
         Task<Result> UpdateAsync(int id, FollowUpRequest request, CancellationToken cancellationToken = default);
         Task<Result> DeleteAsync(int id, CancellationToken cancellationToken = default);
+        Task<Result> SetStatusAsync(int id, string status, CancellationToken cancellationToken = default);
+        Task<Result> UpdatePrescriptionAsync(int id, string treatmentPlan, string notes, CancellationToken cancellationToken = default);
     }
 }

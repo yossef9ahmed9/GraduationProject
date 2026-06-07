@@ -30,10 +30,12 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Patients: Doctor gets only their own patients
+      // Patients: Doctor gets only their own patients, Relative gets only linked patients
       final pRes = await (role == UserRole.doctor
           ? apiService.getDoctorPatients()
-          : apiService.getPatients());
+          : role == UserRole.relative
+              ? apiService.getRelativePatients()
+              : apiService.getPatients());
       if (pRes.ok) patients = pRes.data ?? [];
 
       // Build follow-ups call based on role
@@ -56,7 +58,11 @@ class AppProvider extends ChangeNotifier {
       final emergencyDataCall = role == UserRole.ambulance
           ? apiService.getAllDispatches()
           : Future.value(ApiResult.success(<EmergencyDispatchResponse>[], 200));
-      final ambulancesCall = role == UserRole.ambulance
+
+      // Patient, Relative, and Ambulance all need the fleet list
+      final ambulancesCall = (role == UserRole.ambulance ||
+              role == UserRole.patient ||
+              role == UserRole.relative)
           ? apiService.getAmbulances()
           : Future.value(ApiResult.success(<AmbulanceResponse>[], 200));
 
@@ -156,7 +162,9 @@ class AppProvider extends ChangeNotifier {
   Future<void> refreshPatients(UserRole role) async {
     final res = role == UserRole.doctor
         ? await apiService.getDoctorPatients()
-        : await apiService.getPatients();
+        : role == UserRole.relative
+            ? await apiService.getRelativePatients()
+            : await apiService.getPatients();
     if (res.ok) { patients = res.data ?? []; notifyListeners(); }
   }
 

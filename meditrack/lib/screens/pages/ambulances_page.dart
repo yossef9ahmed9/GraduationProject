@@ -2,78 +2,64 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:meditrack/models/models.dart';
+import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 
-// ════════════════════════════════════════════════════════════════
-// AMBULANCES PAGE
-// Now uses real data from /api/emergencydispatches.
-// The old demo fleet list has been replaced with live dispatch records.
-// ════════════════════════════════════════════════════════════════
-
 class AmbulancesPage extends StatefulWidget {
   const AmbulancesPage({super.key});
-
   @override
   State<AmbulancesPage> createState() => _AmbulancesPageState();
 }
 
 class _AmbulancesPageState extends State<AmbulancesPage> {
-  bool _updating = false;
-  bool _refreshing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      final app = context.read<AppProvider>();
-      if (!app.isLoading && app.ambulances.isEmpty && app.dispatches.isEmpty) {
-        await _refresh();
-      }
-    });
-  }
+  bool _busy    = false;
+  String? _msg;
+  bool _isError = false;
 
   Future<void> _refresh() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
     final app = context.read<AppProvider>();
-    await Future.wait([
-      app.refreshAmbulances(),
-      app.refreshDispatches(),
-    ]);
+    await Future.wait([app.refreshDispatches(), app.refreshAmbulances()]);
+  }
+
+  // ── DND toggle ────────────────────────────────────────────────
+  Future<void> _toggleDnd(AmbulanceResponse amb) async {
+    final newStatus = amb.availabilityStatus == 'Busy' ? 'Available' : 'Busy';
+    setState(() { _busy = true; _msg = null; });
+    final ok = await context.read<AppProvider>()
+        .updateAmbulanceAvailability(amb.id, newStatus);
     if (!mounted) return;
-    setState(() => _refreshing = false);
+    setState(() { _busy = false; _isError = !ok;
+      _msg = ok ? 'DND ${newStatus == 'Busy' ? 'ON' : 'OFF'}.' : 'Failed.'; });
+  }
+
+  // ── Accept / Reject dispatch ──────────────────────────────────
+  Future<void> _accept(EmergencyDispatchResponse d) async {
+    setState(() { _busy = true; _msg = null; });
+    final res = await apiService.acceptDispatch(d.id);
+    await _refresh();
+    if (!mounted) return;
+    setState(() { _busy = false; _isError = !res.ok;
+      _msg = res.ok ? 'Dispatch accepted. On the way!' : (res.error ?? 'Failed.'); });
+  }
+
+  Future<void> _reject(EmergencyDispatchResponse d) async {
+    setState(() { _busy = true; _msg = null; });
+    final res = await apiService.rejectDispatch(d.id);
+    await _refresh();
+    if (!mounted) return;
+    setState(() { _busy = false; _isError = !res.ok;
+      _msg = res.ok ? 'Dispatch rejected.' : (res.error ?? 'Failed.'); });
   }
 
   Future<void> _updateStatus(int dispatchId, String status) async {
-    setState(() => _updating = true);
-    final app = context.read<AppProvider>();
-    final ok = await app.updateDispatchStatus(dispatchId, status);
+    setState(() { _busy = true; _msg = null; });
+    final ok = await context.read<AppProvider>().updateDispatchStatus(dispatchId, status);
     if (!mounted) return;
-    setState(() => _updating = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(
-        ok ? 'Status updated to "$status"' : 'Failed to update status',
-        style: GoogleFonts.dmSans(),
-      ),
-    ));
-  }
-
-  Future<void> _updateAmbulanceAvailability(int ambulanceId, String status) async {
-    setState(() => _updating = true);
-    final app = context.read<AppProvider>();
-    final ok = await app.updateAmbulanceAvailability(ambulanceId, status);
-    if (!mounted) return;
-    setState(() => _updating = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(
-        ok ? 'Ambulance marked ${_availabilityLabel(status)}' : 'Failed to update ambulance',
-        style: GoogleFonts.dmSans(),
-      ),
-    ));
+    setState(() { _busy = false; _isError = !ok;
+      _msg = ok ? 'Updated.' : 'Failed.'; });
   }
 
   @override
@@ -83,582 +69,439 @@ class _AmbulancesPageState extends State<AmbulancesPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final role   = auth.role;
 
-    final allDispatches = app.dispatches;
-    final active   = allDispatches.where((d) => d.isActive).length;
-    final resolved = allDispatches.where((d) => d.status == 'Resolved').length;
-    final availableAmbulances = app.ambulances
-        .where((a) => a.availabilityStatus == 'Available')
-        .length;
+    final myEmail     = auth.user?.email ?? '';
+    final myAmbulance = role == UserRole.ambulance
+        ? app.ambulances
+            .where((a) => a.email.toLowerCase() == myEmail.toLowerCase())
+            .firstOrNull
+        : null;
 
-    // Ambulance role sees only their own dispatches; others see all
-    final visibleDispatches = allDispatches;
+    // ── Patient: fleet only ───────────────────────────────────
+    if (role == UserRole.patient || role == UserRole.relative) {
+      return RefreshIndicator(
+        onRefresh: () => app.refreshAmbulances(),
+        child: Column(children: [
+          if (_msg != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: AlertWidget(message: _msg!, isError: _isError),
+            ),
+          Expanded(child: _FleetTab(ambulances: app.ambulances)),
+        ]),
+      );
+    }
 
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: Stack(
-        children: [
-          SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (app.loadError != null) ...[
-                  AlertWidget(message: app.loadError!, isError: true),
-                  const SizedBox(height: 12),
-                ],
-                // ── Stat row ─────────────────────────────────────
-                Row(children: [
-                  Expanded(child: StatCard(
-                    label: 'Ambulances',
-                    value: '${app.ambulances.length}',
-                    subtitle: '$availableAmbulances available',
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: StatCard(
-                    label: 'Active',
-                    value: '$active',
-                    subtitle: 'In progress',
-                    valueColor: active > 0
-                        ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-                        : null,
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: StatCard(
-                    label: 'Resolved',
-                    value: '$resolved',
-                    subtitle: 'Completed',
-                    valueColor: isDark
-                        ? AppColors.darkBadgeGreenTxt
-                        : AppColors.badgeGreenTxt,
-                  )),
-                ]),
-                const SizedBox(height: 20),
+    // ── Ambulance role ────────────────────────────────────────
+    if (role == UserRole.ambulance) {
+      final myDispatches = app.dispatches
+          .where((d) => d.ambulanceId == myAmbulance?.id)
+          .toList();
 
-                AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const CardHeader(title: 'Ambulance Fleet'),
-                      if (app.isLoading || _refreshing)
-                        const LoadingRows(count: 3)
-                      else if (app.ambulances.isEmpty)
-                        const EmptyState(
-                          message: 'No ambulances found',
-                          icon: Icons.emergency_outlined,
-                        )
-                      else
-                        ...app.ambulances.map((a) => _AmbulanceTile(
-                              ambulance: a,
-                              canUpdate: role == UserRole.ambulance ||
-                                  role == UserRole.admin,
-                              onUpdateAvailability: (status) =>
-                                  _updateAmbulanceAvailability(a.id, status),
-                            )),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        child: Column(children: [
+          // Status card with DND toggle
+          if (myAmbulance != null)
+            _AmbulanceStatusCard(
+              ambulance:  myAmbulance,
+              busy:       _busy,
+              onToggleDnd: () => _toggleDnd(myAmbulance),
+            ),
+          if (_msg != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: AlertWidget(message: _msg!, isError: _isError),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('My Dispatches',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+          ),
+          Expanded(
+            child: _DispatchesList(
+              dispatches:     myDispatches,
+              role:           role,
+              myAmbulanceId:  myAmbulance?.id,
+              busy:           _busy,
+              onAccept:       _accept,
+              onReject:       _reject,
+              onUpdateStatus: _updateStatus,
+              app:            app,
+            ),
+          ),
+        ]),
+      );
+    }
 
-                // ── Active dispatches ─────────────────────────────
-                AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CardHeader(
-                        title: 'Active Dispatches',
-                        trailing: _updating
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2))
-                            : null,
-                      ),
-                      if (app.isLoading || _refreshing)
-                        const LoadingRows(count: 3)
-                      else if (visibleDispatches.where((d) => d.isActive).isEmpty)
-                        const EmptyState(
-                          message: 'No active dispatches',
-                          icon: Icons.check_circle_outline,
-                        )
-                      else
-                        ...visibleDispatches
-                            .where((d) => d.isActive)
-                            .map((d) => _DispatchTile(
-                                  dispatch: d,
-                                  app: app,
-                                  role: role,
-                                  onUpdateStatus: (status) =>
-                                      _updateStatus(d.id, status),
-                                )),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── Dispatch history ──────────────────────────────
-                AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const CardHeader(title: 'Dispatch History'),
-                      if (visibleDispatches
-                          .where((d) => !d.isActive)
-                          .isEmpty)
-                        const EmptyState(
-                          message: 'No past dispatches',
-                          icon: Icons.history,
-                        )
-                      else
-                        ...visibleDispatches
-                            .where((d) => !d.isActive)
-                            .take(20)
-                            .map((d) => _DispatchTile(
-                                  dispatch: d,
-                                  app: app,
-                                  role: role,
-                                  onUpdateStatus: null, // past — read-only
-                                )),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── Emergency vitals needing dispatch ─────────────
-                if (role != UserRole.patient &&
-                    role != UserRole.relative &&
-                    app.emergencyVitals.isNotEmpty)
-                  AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const CardHeader(title: 'Vitals Requiring Attention'),
-                        ...app.emergencyVitals.map((v) => _VitalAlertRow(vital: v)),
-                      ],
-                    ),
-                  ),
+    // ── Admin / Doctor: two tabs ──────────────────────────────
+    return DefaultTabController(
+      length: 2,
+      child: RefreshIndicator(
+        onRefresh: _refresh,
+        child: Column(children: [
+          if (_msg != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: AlertWidget(message: _msg!, isError: _isError),
+            ),
+          Container(
+            color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+            child: TabBar(
+              labelStyle: GoogleFonts.dmSans(
+                  fontSize: 13, fontWeight: FontWeight.w600),
+              tabs: const [
+                Tab(text: 'Active Dispatches'),
+                Tab(text: 'Fleet'),
               ],
             ),
           ),
-
-          // Full-page loading overlay when updating status
-          if (_updating)
-            const IgnorePointer(
-              child: SizedBox.expand(
-                child: ColoredBox(color: Colors.black12),
+          Expanded(
+            child: TabBarView(children: [
+              _DispatchesList(
+                dispatches:     app.dispatches,
+                role:           role,
+                myAmbulanceId:  null,
+                busy:           _busy,
+                onAccept:       _accept,
+                onReject:       _reject,
+                onUpdateStatus: _updateStatus,
+                app:            app,
               ),
-            ),
-        ],
+              _FleetTab(ambulances: app.ambulances),
+            ]),
+          ),
+        ]),
       ),
     );
   }
 }
 
-String _availabilityLabel(String status) {
-  switch (status) {
-    case 'Available':
-      return 'Available';
-    case 'Busy':
-      return 'Busy';
-    case 'OutOfService':
-      return 'Not Available';
-    default:
-      return status;
-  }
-}
+// ── Ambulance status card with DND toggle ─────────────────────
+class _AmbulanceStatusCard extends StatelessWidget {
+  final AmbulanceResponse ambulance;
+  final bool              busy;
+  final VoidCallback      onToggleDnd;
 
-// ── Dispatch tile ─────────────────────────────────────────────────
-
-class _DispatchTile extends StatelessWidget {
-  final EmergencyDispatchResponse dispatch;
-  final AppProvider app;
-  final UserRole role;
-  final void Function(String status)? onUpdateStatus;
-
-  const _DispatchTile({
-    required this.dispatch,
-    required this.app,
-    required this.role,
-    required this.onUpdateStatus,
+  const _AmbulanceStatusCard({
+    required this.ambulance,
+    required this.busy,
+    required this.onToggleDnd,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final status = ambulance.availabilityStatus;
+    final isBusy = status == 'Busy';
+    final isAvail = status == 'Available';
 
-    final patientName =
-        app.patientName(dispatch.patientId) ?? 'Patient #${dispatch.patientId}';
+    BadgeType badgeType;
+    if (isAvail)      badgeType = BadgeType.green;
+    else if (isBusy)  badgeType = BadgeType.red;
+    else              badgeType = BadgeType.amber;  // NotAvailable
 
-    final dispatchedDate = DateTime.tryParse(dispatch.dispatchedAt)?.toLocal();
-    final dispatchedStr = dispatchedDate != null
-        ? '${dispatchedDate.day}/${dispatchedDate.month}/${dispatchedDate.year} '
-          '${dispatchedDate.hour.toString().padLeft(2, '0')}:'
-          '${dispatchedDate.minute.toString().padLeft(2, '0')}'
+    return Container(
+      margin:  const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(ambulance.stationName,
+                style: GoogleFonts.dmSans(
+                    fontSize: 15, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text(ambulance.driverName,
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark
+                        ? AppColors.darkTextSecondary
+                        : AppColors.textSecondary)),
+          ])),
+          BadgeWidget(label: status, type: badgeType),
+        ]),
+        const SizedBox(height: 12),
+        // DND toggle — like dark mode switch
+        Row(children: [
+          Icon(
+            isBusy
+                ? Icons.do_not_disturb_on_rounded
+                : Icons.do_not_disturb_off_outlined,
+            size: 18,
+            color: isBusy
+                ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Do Not Disturb',
+                style: GoogleFonts.dmSans(
+                    fontSize: 13, fontWeight: FontWeight.w500)),
+            Text(isBusy
+                    ? 'You will not receive new dispatches'
+                    : 'You can receive new dispatches',
+                style: GoogleFonts.dmSans(fontSize: 11,
+                    color: isDark
+                        ? AppColors.darkTextTertiary
+                        : AppColors.textTertiary)),
+          ])),
+          Switch(
+            value: isBusy,
+            onChanged: busy ? null : (_) => onToggleDnd(),
+            activeColor: isDark
+                ? AppColors.darkBadgeRedTxt
+                : AppColors.badgeRedTxt,
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Dispatches list ────────────────────────────────────────────
+class _DispatchesList extends StatelessWidget {
+  final List<EmergencyDispatchResponse>          dispatches;
+  final UserRole                                 role;
+  final int?                                     myAmbulanceId;
+  final bool                                     busy;
+  final void Function(EmergencyDispatchResponse) onAccept;
+  final void Function(EmergencyDispatchResponse) onReject;
+  final void Function(int, String)               onUpdateStatus;
+  final AppProvider                              app;
+
+  const _DispatchesList({
+    required this.dispatches, required this.role, this.myAmbulanceId,
+    required this.busy, required this.onAccept, required this.onReject,
+    required this.onUpdateStatus, required this.app,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (dispatches.isEmpty) {
+      return const EmptyState(
+          message: 'No dispatches', icon: Icons.emergency_outlined);
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: dispatches.length,
+      itemBuilder: (_, i) {
+        final d            = dispatches[i];
+        final isPending    = d.status == 'Pending';
+        final isMyDispatch = d.ambulanceId == myAmbulanceId;
+        return _DispatchCard(
+          dispatch:         d,
+          patientName:      app.patientName(d.patientId) ?? 'Patient #${d.patientId}',
+          showAcceptReject: role == UserRole.ambulance && isMyDispatch && isPending && !busy,
+          showStatusUpdate: role == UserRole.ambulance && isMyDispatch && !isPending,
+          showAdminUpdate:  role == UserRole.admin || role == UserRole.doctor,
+          onAccept:         () => onAccept(d),
+          onReject:         () => onReject(d),
+          onUpdateStatus:   (s) => onUpdateStatus(d.id, s),
+        );
+      },
+    );
+  }
+}
+
+// ── Fleet tab ──────────────────────────────────────────────────
+class _FleetTab extends StatelessWidget {
+  final List<AmbulanceResponse> ambulances;
+  const _FleetTab({required this.ambulances});
+
+  @override
+  Widget build(BuildContext context) {
+    if (ambulances.isEmpty) {
+      return const EmptyState(
+          message: 'No ambulances', icon: Icons.local_taxi_outlined);
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: ambulances.length,
+      itemBuilder: (_, i) => _AmbulanceCard(ambulance: ambulances[i]),
+    );
+  }
+}
+
+// ── Dispatch card ──────────────────────────────────────────────
+class _DispatchCard extends StatelessWidget {
+  final EmergencyDispatchResponse dispatch;
+  final String                    patientName;
+  final bool                      showAcceptReject;
+  final bool                      showStatusUpdate;
+  final bool                      showAdminUpdate;
+  final VoidCallback              onAccept;
+  final VoidCallback              onReject;
+  final void Function(String)     onUpdateStatus;
+
+  const _DispatchCard({
+    required this.dispatch, required this.patientName,
+    required this.showAcceptReject, required this.showStatusUpdate,
+    required this.showAdminUpdate,
+    required this.onAccept, required this.onReject, required this.onUpdateStatus,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    DateTime? date;
+    try { date = DateTime.parse(dispatch.dispatchedAt).toLocal(); } catch (_) {}
+    final dateStr = date != null
+        ? '${date.day}/${date.month} '
+          '${date.hour.toString().padLeft(2, '0')}:'
+          '${date.minute.toString().padLeft(2, '0')}'
         : '—';
 
-    final statusColor = _statusColor(dispatch.status, isDark);
-    final canUpdate = onUpdateStatus != null &&
-        (role == UserRole.ambulance ||
-            role == UserRole.admin ||
-            role == UserRole.doctor);
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkBgBase : AppColors.bgBase,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Top row: patient + status badge
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  patientName,
-                  style: GoogleFonts.dmSans(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: isDark
-                        ? AppColors.darkTextPrimary
-                        : AppColors.textPrimary,
-                  ),
-                ),
-              ),
-              _StatusBadge(status: dispatch.status, color: statusColor),
-            ],
-          ),
-          const SizedBox(height: 6),
-
-          // Metadata
-          _MetaRow(Icons.access_time_rounded, 'Dispatched: $dispatchedStr'),
-          _MetaRow(Icons.emergency_outlined,
-              'Ambulance ID: ${dispatch.ambulanceId}'),
-          if (dispatch.notes != null && dispatch.notes!.isNotEmpty)
-            _MetaRow(Icons.notes_rounded, dispatch.notes!),
-
-          // Action buttons — only for active dispatches and authorised roles
-          if (canUpdate) ...[
-            const SizedBox(height: 8),
-            _ActionButtons(
-              status: dispatch.status,
-              onUpdate: onUpdateStatus!,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Color _statusColor(String status, bool isDark) {
-    switch (status) {
-      case 'Pending':
-        return isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt;
-      case 'OnTheWay':
-        return isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt;
-      case 'Arrived':
-        return isDark ? AppColors.darkBadgePurpleTxt : AppColors.badgePurpleTxt;
-      case 'Resolved':
-        return isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt;
-      case 'Cancelled':
-        return isDark ? AppColors.darkTextTertiary : AppColors.textTertiary;
-      default:
-        return isDark ? AppColors.darkTextSecondary : AppColors.textSecondary;
+    BadgeType badgeType;
+    switch (dispatch.status) {
+      case 'OnTheWay':  badgeType = BadgeType.blue;   break;
+      case 'Arrived':   badgeType = BadgeType.purple; break;
+      case 'Resolved':  badgeType = BadgeType.green;  break;
+      case 'Cancelled': badgeType = BadgeType.red;    break;
+      default:          badgeType = BadgeType.amber;
     }
+
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(patientName,
+              style: GoogleFonts.dmSans(
+                  fontSize: 14, fontWeight: FontWeight.w700))),
+          BadgeWidget(label: dispatch.status, type: badgeType),
+        ]),
+        const SizedBox(height: 6),
+        Text('Dispatched: $dateStr',
+            style: GoogleFonts.dmSans(fontSize: 12,
+                color: isDark
+                    ? AppColors.darkTextSecondary
+                    : AppColors.textSecondary)),
+        if (dispatch.notes != null && dispatch.notes!.isNotEmpty)
+          Text(dispatch.notes!,
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark
+                      ? AppColors.darkTextTertiary
+                      : AppColors.textTertiary)),
+
+        if (showAcceptReject) ...[
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: ElevatedButton.icon(
+              onPressed: onAccept,
+              icon: const Icon(Icons.check_rounded, size: 16),
+              label: const Text('Accept'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.badgeGreenTxt,
+                  foregroundColor: Colors.white),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: OutlinedButton.icon(
+              onPressed: onReject,
+              icon: const Icon(Icons.close_rounded, size: 16),
+              label: const Text('Reject'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: isDark
+                    ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
+                side: BorderSide(
+                    color: isDark
+                        ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt),
+              ),
+            )),
+          ]),
+        ],
+
+        if (showStatusUpdate) ...[
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, children: [
+            if (dispatch.status == 'OnTheWay')
+              OutlinedButton(
+                  onPressed: () => onUpdateStatus('Arrived'),
+                  child: const Text('Mark Arrived')),
+            if (dispatch.status == 'Arrived')
+              ElevatedButton(
+                  onPressed: () => onUpdateStatus('Resolved'),
+                  child: const Text('Resolve')),
+          ]),
+        ],
+
+        if (showAdminUpdate &&
+            dispatch.status != 'Resolved' &&
+            dispatch.status != 'Cancelled') ...[
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, children: [
+            if (dispatch.status == 'Pending')
+              OutlinedButton(
+                  onPressed: () => onUpdateStatus('Cancelled'),
+                  child: const Text('Cancel')),
+            if (dispatch.status == 'OnTheWay')
+              OutlinedButton(
+                  onPressed: () => onUpdateStatus('Arrived'),
+                  child: const Text('Mark Arrived')),
+            if (dispatch.status == 'Arrived')
+              OutlinedButton(
+                  onPressed: () => onUpdateStatus('Resolved'),
+                  child: const Text('Resolve')),
+          ]),
+        ],
+      ]),
+    );
   }
 }
 
-class _AmbulanceTile extends StatelessWidget {
+// ── Ambulance card ─────────────────────────────────────────────
+class _AmbulanceCard extends StatelessWidget {
   final AmbulanceResponse ambulance;
-  final bool canUpdate;
-  final void Function(String status)? onUpdateAvailability;
-
-  const _AmbulanceTile({
-    required this.ambulance,
-    required this.canUpdate,
-    required this.onUpdateAvailability,
-  });
+  const _AmbulanceCard({required this.ambulance});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isAvailable = ambulance.availabilityStatus == 'Available';
-    final badgeType = isAvailable
-        ? BadgeType.green
-        : ambulance.availabilityStatus == 'Busy'
-            ? BadgeType.amber
-            : BadgeType.red;
+    BadgeType type;
+    switch (ambulance.availabilityStatus) {
+      case 'Available': type = BadgeType.green;  break;
+      case 'Busy':      type = BadgeType.red;    break;
+      default:          type = BadgeType.amber;
+    }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkBgBase : AppColors.bgBase,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
-        ),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.all(14),
       child: Row(children: [
         Container(
-          width: 38,
-          height: 38,
+          width: 40, height: 40,
           decoration: BoxDecoration(
-            color: isAvailable
-                ? (isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg)
-                : (isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg),
+            color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(Icons.emergency_outlined,
-              size: 20,
-              color: isAvailable
-                  ? (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)
-                  : (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)),
+          child: Icon(Icons.emergency_outlined, size: 20,
+              color: isDark
+                  ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
         ),
         const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(ambulance.stationName,
-              style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text('${ambulance.licensePlate} · ${ambulance.driverName}',
-              style: GoogleFonts.dmSans(fontSize: 12,
-                  color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-          Text(ambulance.phone.isNotEmpty ? ambulance.phone : ambulance.driverPhone,
-              style: GoogleFonts.dmSans(fontSize: 11.5,
-                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-        ])),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            BadgeWidget(
-              label: _availabilityLabel(ambulance.availabilityStatus),
-              type: badgeType,
-            ),
-            if (canUpdate) ...[
-              const SizedBox(height: 6),
-              PopupMenuButton<String>(
-                tooltip: 'Change availability',
-                onSelected: onUpdateAvailability,
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'Available',
-                    child: Text('Available'),
-                  ),
-                  PopupMenuItem(
-                    value: 'Busy',
-                    child: Text('Busy'),
-                  ),
-                  PopupMenuItem(
-                    value: 'OutOfService',
-                    child: Text('Not Available'),
-                  ),
-                ],
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.darkBorderColor
-                          : AppColors.borderColor,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.tune_rounded,
-                          size: 14,
-                          color: isDark
-                              ? AppColors.darkTextSecondary
-                              : AppColors.textSecondary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Status',
-                          style: GoogleFonts.dmSans(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ]),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  final Color color;
-
-  const _StatusBadge({required this.status, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        status,
-        style: GoogleFonts.dmSans(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
-    );
-  }
-}
-
-class _MetaRow extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _MetaRow(this.icon, this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.only(top: 3),
-      child: Row(children: [
-        Icon(icon,
-            size: 13,
-            color: isDark
-                ? AppColors.darkTextTertiary
-                : AppColors.textTertiary),
-        const SizedBox(width: 5),
-        Expanded(
-          child: Text(
-            text,
-            style: GoogleFonts.dmSans(
-              fontSize: 12,
-              color: isDark
-                  ? AppColors.darkTextSecondary
-                  : AppColors.textSecondary,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-// Status progression: Pending → OnTheWay → Arrived → Resolved | Cancelled
-class _ActionButtons extends StatelessWidget {
-  final String status;
-  final void Function(String) onUpdate;
-
-  const _ActionButtons({required this.status, required this.onUpdate});
-
-  @override
-  Widget build(BuildContext context) {
-    final List<_ActionDef> actions = [];
-
-    switch (status) {
-      case 'Pending':
-        actions.add(const _ActionDef('On the Way', 'OnTheWay', Icons.directions_car_outlined));
-        actions.add(const _ActionDef('Cancel', 'Cancelled', Icons.cancel_outlined, danger: true));
-        break;
-      case 'OnTheWay':
-        actions.add(const _ActionDef('Arrived', 'Arrived', Icons.location_on_outlined));
-        actions.add(const _ActionDef('Cancel', 'Cancelled', Icons.cancel_outlined, danger: true));
-        break;
-      case 'Arrived':
-        actions.add(const _ActionDef('Resolve', 'Resolved', Icons.check_circle_outline));
-        break;
-    }
-
-    if (actions.isEmpty) return const SizedBox.shrink();
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      children: actions.map((a) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final color = a.danger
-            ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-            : (isDark ? AppColors.darkAccentMuted : AppColors.accentMuted);
-        return OutlinedButton.icon(
-          onPressed: () => onUpdate(a.status),
-          icon: Icon(a.icon, size: 14, color: color),
-          label: Text(a.label,
               style: GoogleFonts.dmSans(
-                  fontSize: 12, fontWeight: FontWeight.w500, color: color)),
-          style: OutlinedButton.styleFrom(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            side: BorderSide(color: color.withOpacity(0.4)),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8)),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _ActionDef {
-  final String label;
-  final String status;
-  final IconData icon;
-  final bool danger;
-
-  const _ActionDef(this.label, this.status, this.icon,
-      {this.danger = false});
-}
-
-// ── Vital alert row ───────────────────────────────────────────────
-
-class _VitalAlertRow extends StatelessWidget {
-  final VitalSignsResponse vital;
-
-  const _VitalAlertRow({required this.vital});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg;
-    final fg = isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: fg.withOpacity(0.3)),
-      ),
-      child: Row(children: [
-        Icon(Icons.warning_amber_rounded, size: 15, color: fg),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            '${vital.patientName} — HR: ${vital.heartRate} bpm'
-            '${vital.oxygenSaturation != null ? ' · SpO₂: ${vital.oxygenSaturation!.toStringAsFixed(1)}%' : ''}',
-            style: GoogleFonts.dmSans(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: fg,
-            ),
-          ),
-        ),
+                  fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          Text(ambulance.driverName,
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark
+                      ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+          Text(ambulance.phone,
+              style: GoogleFonts.dmSans(fontSize: 11.5,
+                  color: isDark
+                      ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+        ])),
+        BadgeWidget(label: ambulance.availabilityStatus, type: type),
       ]),
     );
   }

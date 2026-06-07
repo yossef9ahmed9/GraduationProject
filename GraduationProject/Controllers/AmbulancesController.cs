@@ -1,166 +1,50 @@
 using GraduationProject.Contracts.Ambulances;
-using GraduationProject.Presistence;
-using Mapster;
+using GraduationProject.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
 namespace GraduationProject.Controllers
 {
-    // ════════════════════════════════════════════════════════════════
-    // AmbulancesController
-    //
-    // Endpoints:
-    //   GET    /api/ambulances                        — all ambulances (paged)
-    //   GET    /api/ambulances/available              — only Available ones
-    //   GET    /api/ambulances/{id}                   — single ambulance
-    //   GET    /api/ambulances/{id}/dispatches        — dispatch history for ambulance
-    //   PUT    /api/ambulances/{id}/availability      — update availability status
-    // ════════════════════════════════════════════════════════════════
-
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
-    public class AmbulancesController(AppDbContext context) : ControllerBase
+    public class AmbulancesController(IAmbulanceService service) : ControllerBase
     {
-        private readonly AppDbContext _context = context;
+        private readonly IAmbulanceService _service = service;
 
-        // ── GET /api/ambulances ───────────────────────────────────────────────
+        string Email() =>
+            User.FindFirst("email")?.Value ??
+            User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+
+        bool IsAmbulance() => User.IsInRole("Ambulance");
+
+        // GET /api/ambulances
         [HttpGet]
         public async Task<IActionResult> GetAll(
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize   = 20,
             CancellationToken cancellationToken = default)
         {
-            var query = _context.Ambulances
-                .AsNoTracking()
-                .Where(a => !a.IsDeleted);
-
-            if (User.IsInRole("Ambulance"))
-            {
-                var email = GetUserEmail();
-                if (string.IsNullOrWhiteSpace(email))
-                    return Unauthorized(new { message = "Ambulance email claim is missing." });
-
-                var name = GetUserName();
-                query = query.Where(a =>
-                    a.Email == email ||
-                    (a.Email == "" && a.StationName == name));
-            }
-
-            var ambulances = await query
-                .OrderBy(a => a.StationName)
-                .Select(a => new AmbulanceResponse(
-                    a.Id,
-                    a.Email,
-                    a.StationName,
-                    a.Phone,
-                    a.AvailabilityStatus,
-                    a.LicensePlate,
-                    a.DriverName,
-                    a.DriverPhone,
-                    a.Latitude,
-                    a.Longitude,
-                    a.LastLocationUpdate,
-                    a.EmergencyDispatches
-                        .Count(d => d.Status != "Resolved" && d.Status != "Cancelled")
-                ))
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
-
-            return Ok(ambulances);
+            var result = await _service.GetAllAsync(
+                Email(), IsAmbulance(), pageNumber, pageSize, cancellationToken);
+            return Ok(result);
         }
 
-        // ── GET /api/ambulances/available ─────────────────────────────────────
+        // GET /api/ambulances/available
         [HttpGet("available")]
-        public async Task<IActionResult> GetAvailable(
-            CancellationToken cancellationToken = default)
-        {
-            var query = _context.Ambulances
-                .AsNoTracking()
-                .Where(a => !a.IsDeleted && a.AvailabilityStatus == "Available");
+        public async Task<IActionResult> GetAvailable(CancellationToken cancellationToken)
+            => Ok(await _service.GetAvailableAsync(cancellationToken));
 
-            if (User.IsInRole("Ambulance"))
-            {
-                var email = GetUserEmail();
-                if (string.IsNullOrWhiteSpace(email))
-                    return Unauthorized(new { message = "Ambulance email claim is missing." });
-
-                var name = GetUserName();
-                query = query.Where(a =>
-                    a.Email == email ||
-                    (a.Email == "" && a.StationName == name));
-            }
-
-            var ambulances = await query
-                .OrderBy(a => a.StationName)
-                .Select(a => new AmbulanceResponse(
-                    a.Id,
-                    a.Email,
-                    a.StationName,
-                    a.Phone,
-                    a.AvailabilityStatus,
-                    a.LicensePlate,
-                    a.DriverName,
-                    a.DriverPhone,
-                    a.Latitude,
-                    a.Longitude,
-                    a.LastLocationUpdate,
-                    0
-                ))
-                .ToListAsync(cancellationToken);
-
-            return Ok(ambulances);
-        }
-
-        // ── GET /api/ambulances/{id} ──────────────────────────────────────────
+        // GET /api/ambulances/{id}
         [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(
-            int id,
-            CancellationToken cancellationToken)
+        public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
         {
-            var ambulance = await _context.Ambulances
-                .AsNoTracking()
-                .Where(a => a.Id == id && !a.IsDeleted)
-                .Select(a => new AmbulanceResponse(
-                    a.Id,
-                    a.Email,
-                    a.StationName,
-                    a.Phone,
-                    a.AvailabilityStatus,
-                    a.LicensePlate,
-                    a.DriverName,
-                    a.DriverPhone,
-                    a.Latitude,
-                    a.Longitude,
-                    a.LastLocationUpdate,
-                    a.EmergencyDispatches
-                        .Count(d => d.Status != "Resolved" && d.Status != "Cancelled")
-                ))
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (ambulance is null)
-                return NotFound(new { message = "Ambulance not found." });
-
-            if (User.IsInRole("Ambulance"))
-            {
-                var email = GetUserEmail();
-                if (string.IsNullOrWhiteSpace(email))
-                    return Unauthorized(new { message = "Ambulance email claim is missing." });
-
-                var name = GetUserName();
-                var isOwnAmbulance = ambulance.Email == email ||
-                    (ambulance.Email == "" && ambulance.StationName == name);
-
-                if (!isOwnAmbulance)
-                    return Forbid();
-            }
-
-            return Ok(ambulance);
+            var result = await _service.GetByIdAsync(id, Email(), IsAmbulance(), cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
         }
 
-        // ── GET /api/ambulances/{id}/dispatches ───────────────────────────────
+        // GET /api/ambulances/{id}/dispatches
         [HttpGet("{id}/dispatches")]
         public async Task<IActionResult> GetDispatches(
             int id,
@@ -168,97 +52,43 @@ namespace GraduationProject.Controllers
             [FromQuery] int pageSize   = 10,
             CancellationToken cancellationToken = default)
         {
-            var exists = await _context.Ambulances
-                .AnyAsync(a => a.Id == id && !a.IsDeleted, cancellationToken);
-
-            if (!exists)
-                return NotFound(new { message = "Ambulance not found." });
-
-            if (User.IsInRole("Ambulance"))
-            {
-                var email = GetUserEmail();
-                if (string.IsNullOrWhiteSpace(email))
-                    return Unauthorized(new { message = "Ambulance email claim is missing." });
-
-                var name = GetUserName();
-                var isOwnAmbulance = await _context.Ambulances.AnyAsync(a =>
-                    a.Id == id &&
-                    !a.IsDeleted &&
-                    (a.Email == email || (a.Email == "" && a.StationName == name)),
-                    cancellationToken);
-
-                if (!isOwnAmbulance)
-                    return Forbid();
-            }
-
-            var dispatches = await _context.EmergencyDispatches
-                .AsNoTracking()
-                .Where(d => d.AmbulanceId == id)
-                .OrderByDescending(d => d.DispatchedAt)
-                .Select(d => new
-                {
-                    d.Id,
-                    d.DispatchedAt,
-                    d.ArrivedAt,
-                    d.ResolvedAt,
-                    d.Status,
-                    d.PatientId,
-                    PatientName = d.Patient.Name,
-                    d.Notes
-                })
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
-
-            return Ok(dispatches);
+            var result = await _service.GetDispatchesAsync(
+                id, Email(), IsAmbulance(), pageNumber, pageSize, cancellationToken);
+            return Ok(result);
         }
 
-        // ── PUT /api/ambulances/{id}/availability ─────────────────────────────
-        // Ambulance driver can update their own status manually
+        // PUT /api/ambulances/{id}/availability
         [HttpPut("{id}/availability")]
         public async Task<IActionResult> UpdateAvailability(
             int id,
             [FromBody] UpdateAmbulanceAvailabilityRequest request,
             CancellationToken cancellationToken)
         {
-            var valid = new[] { "Available", "Busy", "OutOfService" };
-            if (!valid.Contains(request.AvailabilityStatus))
-                return BadRequest(new { message = "Status must be Available, Busy, or OutOfService." });
-
-            var ambulance = await _context.Ambulances
-                .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted, cancellationToken);
-
-            if (ambulance is null)
-                return NotFound(new { message = "Ambulance not found." });
-
-            if (User.IsInRole("Ambulance"))
-            {
-                var email = GetUserEmail();
-                if (string.IsNullOrWhiteSpace(email))
-                    return Unauthorized(new { message = "Ambulance email claim is missing." });
-
-                var name = GetUserName();
-                var isOwnAmbulance = ambulance.Email == email ||
-                    (ambulance.Email == "" && ambulance.StationName == name);
-
-                if (!isOwnAmbulance)
-                    return Forbid();
-
-                if (string.IsNullOrWhiteSpace(ambulance.Email))
-                    ambulance.Email = email;
-            }
-
-            ambulance.AvailabilityStatus = request.AvailabilityStatus;
-            await _context.SaveChangesAsync(cancellationToken);
-
-            return NoContent();
+            var result = await _service.UpdateAvailabilityAsync(
+                id, request.AvailabilityStatus, Email(), IsAmbulance(), cancellationToken);
+            return result.IsSuccess ? NoContent() : result.ToProblem();
         }
 
-        private string? GetUserEmail() =>
-            User.FindFirstValue(ClaimTypes.Email)
-            ?? User.FindFirstValue("email");
+        // POST /api/ambulances/signin
+        [HttpPost("signin")]
+        [Authorize(Roles = "Ambulance")]
+        public async Task<IActionResult> SignIn(CancellationToken cancellationToken)
+        {
+            var result = await _service.SignInAsync(Email(), cancellationToken);
+            return result.IsSuccess
+                ? Ok(new { message = "Status set to Available." })
+                : result.ToProblem();
+        }
 
-        private string? GetUserName() =>
-            User.FindFirstValue(ClaimTypes.Name)
-            ?? User.FindFirstValue(JwtRegisteredClaimNames.Name)
-            ?? User.FindFirstValue("name");
+        // POST /api/ambulances/signout
+        [HttpPost("signout")]
+        [Authorize(Roles = "Ambulance")]
+        public async Task<IActionResult> SignOut(CancellationToken cancellationToken)
+        {
+            var result = await _service.SignOutAsync(Email(), cancellationToken);
+            return result.IsSuccess
+                ? Ok(new { message = "Status set to NotAvailable." })
+                : result.ToProblem();
+        }
     }
 }

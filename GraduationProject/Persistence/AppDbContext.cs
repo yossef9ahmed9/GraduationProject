@@ -18,6 +18,7 @@ namespace GraduationProject.Presistence
         public DbSet<EmergencyDispatch> EmergencyDispatches { get; set; }
         public DbSet<LabAppointment> LabAppointments { get; set; }
         public DbSet<ChatMessage> ChatMessages { get; set; }
+        public DbSet<RelativePatientRequest> RelativePatientRequests { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -98,6 +99,31 @@ namespace GraduationProject.Presistence
 
                 modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
             }
+
+            // RelativePatientRequest configuration
+            modelBuilder.Entity<RelativePatientRequest>(b =>
+            {
+                b.HasKey(x => x.Id);
+
+                b.Property(x => x.Status)
+                    .IsRequired()
+                    .HasMaxLength(20);
+
+                b.HasOne(x => x.Relative)
+                    .WithMany(r => r.PatientRequests)
+                    .HasForeignKey(x => x.RelativeId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                b.HasOne(x => x.Patient)
+                    .WithMany()
+                    .HasForeignKey(x => x.PatientId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Make Relative.PatientId nullable
+            modelBuilder.Entity<Relative>()
+                .Property(r => r.PatientId)
+                .IsRequired(false);
 
             // User deleted → delete their RefreshTokens
             modelBuilder.Entity<RefreshToken>()

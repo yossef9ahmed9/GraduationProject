@@ -180,29 +180,138 @@ class _RelativeDash extends StatelessWidget {
 class _AmbulanceDash extends StatelessWidget {
   final AppProvider app;
   const _AmbulanceDash({required this.app});
+
   @override
   Widget build(BuildContext context) {
-    final alerts = app.vitals.where((v) => v.emergencyStatus).length;
-    final activeD = app.activeDispatches.length;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // All active dispatches on the system
+    final allActive = app.activeDispatches;
+
+    // Dispatches assigned to THIS ambulance (pending requests for me)
+    final auth       = context.read<AuthProvider>();
+    final myEmail    = auth.user?.email ?? '';
+    final myAmb      = app.ambulances
+        .where((a) => a.email.toLowerCase() == myEmail.toLowerCase())
+        .firstOrNull;
+    final myPending  = myAmb != null
+        ? app.dispatches
+            .where((d) => d.ambulanceId == myAmb.id && d.status == 'Pending')
+            .toList()
+        : <EmergencyDispatchResponse>[];
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _WelcomeBanner(icon: Icons.emergency_outlined, text: 'Ambulance dashboard — Monitor and manage dispatch requests.'),
-      const SizedBox(height: 16),
-      if (app.hasEmergency) ...[
-        EmergencyBanner(
-          text: app.emergencyVitals.isNotEmpty ? '${app.emergencyVitals.first.patientName} — Emergency alert' : 'Emergency alert active',
-          onViewVitals: () => HomeNavigator.go(context, 'vitals')),
-        const SizedBox(height: 12),
+
+      // ── Section 1: Pending requests for me ─────────────────
+      if (myPending.isNotEmpty) ...[
+        Text('Incoming Requests',
+            style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        ...myPending.map((d) => _DispatchSummaryCard(
+          dispatch: d,
+          app: app,
+          isDark: isDark,
+          highlight: true,
+        )),
+        const SizedBox(height: 20),
       ],
-      Row(children: [
-        Expanded(child: StatCard(label: 'Active Dispatches', value: '$activeD', subtitle: 'In progress',
-          valueColor: activeD > 0 ? AppColors.badgeRedTxt : null)),
-        const SizedBox(width: 12),
-        Expanded(child: StatCard(label: 'Vitals Alerts', value: '$alerts', subtitle: 'From vitals API',
-          valueColor: alerts > 0 ? AppColors.badgeRedTxt : null)),
-        const SizedBox(width: 12),
-        Expanded(child: StatCard(label: 'Patients', value: '${app.patients.length}')),
-      ]),
+
+      // ── Section 2: All active emergencies on the system ────
+      Text('Active Emergencies',
+          style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      Text('${allActive.length} case${allActive.length != 1 ? 's' : ''} in progress',
+          style: GoogleFonts.dmSans(fontSize: 12,
+              color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+      const SizedBox(height: 10),
+
+      if (allActive.isEmpty)
+        const EmptyState(
+            message: 'No active emergencies', icon: Icons.check_circle_outline)
+      else
+        ...allActive.map((d) => _DispatchSummaryCard(
+          dispatch: d,
+          app: app,
+          isDark: isDark,
+          highlight: false,
+        )),
     ]);
+  }
+}
+
+class _DispatchSummaryCard extends StatelessWidget {
+  final EmergencyDispatchResponse dispatch;
+  final AppProvider app;
+  final bool isDark;
+  final bool highlight;
+  const _DispatchSummaryCard({
+    required this.dispatch, required this.app,
+    required this.isDark, required this.highlight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final patName = app.patientName(dispatch.patientId)
+        ?? 'Patient #${dispatch.patientId}';
+    DateTime? date;
+    try { date = DateTime.parse(dispatch.dispatchedAt).toLocal(); } catch (_) {}
+    final dateStr = date != null
+        ? '${date.day}/${date.month} '
+          '${date.hour.toString().padLeft(2,'0')}:'
+          '${date.minute.toString().padLeft(2,'0')}'
+        : '—';
+
+    BadgeType badgeType;
+    switch (dispatch.status) {
+      case 'OnTheWay':  badgeType = BadgeType.blue;   break;
+      case 'Arrived':   badgeType = BadgeType.purple; break;
+      case 'Resolved':  badgeType = BadgeType.green;  break;
+      case 'Cancelled': badgeType = BadgeType.red;    break;
+      default:          badgeType = BadgeType.amber;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: highlight
+            ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
+            : (isDark ? AppColors.darkBgCard : AppColors.bgCard),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: highlight
+              ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                  .withValues(alpha: 0.4)
+              : (isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+        ),
+      ),
+      child: Row(children: [
+        Icon(
+          highlight ? Icons.emergency_rounded : Icons.local_hospital_outlined,
+          size: 20,
+          color: highlight
+              ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+              : (isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(patName, style: GoogleFonts.dmSans(
+              fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text(dateStr, style: GoogleFonts.dmSans(fontSize: 11,
+              color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          if (dispatch.notes != null && dispatch.notes!.isNotEmpty)
+            Text(dispatch.notes!,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.dmSans(fontSize: 11,
+                    color: isDark
+                        ? AppColors.darkTextSecondary
+                        : AppColors.textSecondary)),
+        ])),
+        BadgeWidget(label: dispatch.status, type: badgeType),
+      ]),
+    );
   }
 }
 

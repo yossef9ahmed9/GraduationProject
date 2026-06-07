@@ -32,9 +32,6 @@ namespace GraduationProject.Contracts.Authentication
             RuleFor(x => x.RelationType)
                 .NotEmpty().WithMessage("Relation type is required.")
                 .MaximumLength(50);
-
-            RuleFor(x => x.PatientId)
-                .GreaterThan(0).WithMessage("A valid Patient ID is required.");
         }
     }
 }

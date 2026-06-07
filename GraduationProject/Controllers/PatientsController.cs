@@ -77,6 +77,43 @@ namespace GraduationProject.Controllers
             return Ok(patients);
         }
 
+        // ── NEW: GET /api/patients/relative ─────────────────────────
+        // Returns only the patient(s) that are approved-linked to the
+        // calling relative (i.e. Relative.PatientId is set).
+        //
+        // Route note: "relative" must come BEFORE "{id}".
+        [HttpGet("relative")]
+        [Authorize(Roles = "Relative")]
+        public async Task<IActionResult> GetMyLinkedPatients(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize   = 10,
+            CancellationToken cancellationToken = default)
+        {
+            var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                     ?? User.FindFirst("email")?.Value;
+
+            if (string.IsNullOrEmpty(email))
+                return Unauthorized();
+
+            var relative = await _context.Relatives
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Email == email, cancellationToken);
+
+            if (relative is null)
+                return NotFound(new { title = "Relative record not found." });
+
+            if (relative.PatientId is null)
+                return Ok(new { items = Array.Empty<object>(), pageNumber, pageSize, totalCount = 0, totalPages = 0 });
+
+            var patients = await _context.Patients
+                .AsNoTracking()
+                .Where(p => p.Id == relative.PatientId.Value)
+                .ProjectToType<PatientResponse>()
+                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+
+            return Ok(patients);
+        }
+
         // ── GET /api/patients/{id} ──────────────────────────────────
         [HttpGet("{id}")]
         public async Task<IActionResult> GetPatient(int id, CancellationToken cancellationToken)

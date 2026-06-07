@@ -8,12 +8,14 @@
         public string Notes { get; set; } = string.Empty;
         public DateTime LastUpdate { get; set; }
 
-        // NEW: when is the patient's next visit
+        // when is the patient's next visit
         public DateTime? NextVisitDate { get; set; }
 
-        // NEW: track the severity level of the case
-        // e.g. Low, Medium, High, Critical
+        // severity level: Low, Medium, High, Critical
         public string Severity { get; set; } = "Low";
+
+        // approval flow: Pending → Approved | Rejected | Cancelled
+        public string Status { get; set; } = "Pending";
 
         public int PatientId { get; set; }
         public Patient Patient { get; set; } = default!;

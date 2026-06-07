@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/services/auth_provider.dart';
+import 'package:meditrack/services/chat_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
@@ -17,15 +18,62 @@ class PatientsPage extends StatefulWidget {
 class _PatientsPageState extends State<PatientsPage> {
   final _searchCtrl = TextEditingController();
   String _query = '';
+  // Chat contacts (emails) loaded once — used to filter Lab's patient list
+  Set<String> _chatContactEmails = {};
+  bool _contactsLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadContacts());
+  }
+
+  Future<void> _loadContacts() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.role != UserRole.lab) { setState(() => _contactsLoaded = true); return; }
+    final convs = await chatService.getConversations();
+    if (!mounted) return;
+    setState(() {
+      _chatContactEmails = convs.map((c) => c.otherEmail.toLowerCase()).toSet();
+      _contactsLoaded    = true;
+    });
+  }
 
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
+
+  /// Returns patients visible to the current role:
+  /// - Doctor  → only patients linked via follow-ups (already filtered by backend)
+  /// - Lab     → only patients who booked an appointment with this lab
+  ///             OR have sent a chat message to this lab
+  /// - Others  → all patients
+  List<PatientResponse> _visiblePatients(
+      AppProvider app, UserRole role, String myEmail) {
+    if (role == UserRole.lab) {
+      // IDs from lab appointments
+      final apptPatientIds = app.labAppointments
+          .where((a) => a.labId ==
+              app.labs
+                  .where((l) => l.email.toLowerCase() == myEmail.toLowerCase())
+                  .map((l) => l.id)
+                  .firstOrNull)
+          .map((a) => a.patientId)
+          .toSet();
+      return app.patients.where((p) {
+        final bookedHere    = apptPatientIds.contains(p.id);
+        final chattedWithMe = _chatContactEmails.contains(p.email.toLowerCase());
+        return bookedHere || chattedWithMe;
+      }).toList();
+    }
+    // Doctor already receives only their patients from backend (getDoctorPatients)
+    return app.patients;
+  }
 
   List<PatientResponse> _filtered(List<PatientResponse> all) {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return all;
     return all.where((p) =>
-    p.name.toLowerCase().contains(q) ||
+        p.name.toLowerCase().contains(q) ||
         p.email.toLowerCase().contains(q) ||
         p.phone.contains(q)).toList();
   }
@@ -36,13 +84,21 @@ class _PatientsPageState extends State<PatientsPage> {
     final auth   = context.watch<AuthProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final role   = auth.role;
+    final myEmail = auth.user?.email ?? '';
     final canChat = role == UserRole.doctor ||
         role == UserRole.admin  ||
         role == UserRole.lab;
-    final filtered = _filtered(app.patients);
+
+    final visible  = _contactsLoaded
+        ? _visiblePatients(app, role, myEmail)
+        : <PatientResponse>[];
+    final filtered = _filtered(visible);
 
     return RefreshIndicator(
-      onRefresh: () => app.refreshPatients(role),
+      onRefresh: () async {
+        await app.refreshPatients(role);
+        await _loadContacts();
+      },
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
