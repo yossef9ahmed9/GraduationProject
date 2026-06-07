@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -26,6 +27,11 @@ class _TestsPageState extends State<TestsPage> {
   int? _ocrLabId;
   int? _ocrAppointmentId;
   final Map<String, TextEditingController> _manualCtrls = {};
+
+  // Holds the latest OCR scan in memory only — never persisted to DB until
+  // the user explicitly presses "Save". Cleared on discard or app restart.
+  List<Map> _pendingOcrTests = [];
+  String   _pendingFileName  = '';
 
   @override
   void dispose() {
@@ -69,6 +75,11 @@ class _TestsPageState extends State<TestsPage> {
   }
 
   // ── OCR core ──────────────────────────────────────────────────
+  // Step 1 of 2: scan the image for a PREVIEW only.
+  // We deliberately omit patientId/labId from the OCR request so the backend
+  // performs OCR + analysis but does NOT save anything to the database.
+  // The result is held in _pendingOcrTests (widget state only) until the user
+  // explicitly presses "Save" or "Discard".
   Future<void> _runOcr({
     required int patientId,
     required int labId,
@@ -87,10 +98,17 @@ class _TestsPageState extends State<TestsPage> {
       return;
     }
 
-    setState(() { _busy = true; _message = null; _ocrResult = null; _manualCtrls.clear(); });
+    // Clear any previous pending preview before starting a new scan
+    setState(() {
+      _busy = true; _message = null;
+      _ocrResult = null; _manualCtrls.clear();
+      _pendingOcrTests = []; _pendingFileName = file.name;
+    });
 
+    // Send WITHOUT patientId/labId — backend returns analysis but saves nothing
     final res = await apiService.uploadOcrReport(
-      fileName: file.name, bytes: bytes, patientId: patientId, labId: labId,
+      fileName: file.name, bytes: bytes,
+      // patientId and labId intentionally omitted for preview-only mode
     );
     if (!mounted) return;
 
@@ -99,46 +117,96 @@ class _TestsPageState extends State<TestsPage> {
       return;
     }
 
-    final scan = res.data!;
+    final scan  = res.data!;
     final tests = (scan.analysis['tests'] as List? ?? []);
 
-    // Totally unreadable — show all CBC fields for manual entry
-    if (!scan.isValidScan) {
-      const allFields = [
-        'Hemoglobin','Hematocrit','RBCs Count','MCV','MCH','MCHC',
-        'RDW-CV','Platelets','WBC','Neutrophils','Lymphocytes',
-        'Monocytes','Eosinophils','Basophils',
-      ];
-      setState(() {
-        _busy = false; _isError = false;
-        _message = 'Could not read values from image. Please enter them manually.';
-        _ocrResult = scan; _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
-        for (final f in allFields) _manualCtrls[f] = TextEditingController();
-      });
-      return;
-    }
-
-    // Partially unreadable — show only the bad fields
+    // Identify fields the OCR could not read clearly
     final unreadable = tests
         .where((t) => (t as Map)['status'] == 'UnreadableValue')
         .map((t) => (t as Map)['name'] as String)
         .toList();
 
+    // Fallback: if backend returned no test entries at all, prompt all fields
+    const _allCbcFields = [
+      'Hemoglobin','Hematocrit','RBCs Count','MCV','MCH','MCHC',
+      'RDW-CV','Platelets','WBC','Neutrophils','Lymphocytes',
+      'Monocytes','Eosinophils','Basophils',
+    ];
+
+    if (!scan.isValidScan) {
+      // Completely unreadable — show manual entry for unrecognised fields only
+      final fieldsToPrompt = unreadable.isNotEmpty ? unreadable : _allCbcFields;
+      setState(() {
+        _busy = false; _isError = false;
+        _message = fieldsToPrompt.length < _allCbcFields.length
+            ? 'Some values could not be read. Please enter them manually.'
+            : 'Could not read values from image. Please enter them manually.';
+        _ocrResult = scan;
+        _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
+        for (final f in fieldsToPrompt) _manualCtrls[f] = TextEditingController();
+      });
+      return;
+    }
+
     if (unreadable.isNotEmpty) {
+      // Partially unreadable — show manual entry only for unrecognised fields
       setState(() {
         _busy = false; _isError = false;
         _message = 'Some values could not be read. Please enter them manually.';
-        _ocrResult = scan; _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
+        _ocrResult = scan;
+        _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
         for (final f in unreadable) _manualCtrls[f] = TextEditingController();
       });
       return;
     }
 
-    // Fully valid — already saved by backend
-    await _refresh();
+    // Fully readable — store in memory as a pending preview (NOT saved to DB yet)
     setState(() {
       _busy = false; _isError = false;
-      _message = 'Report scanned and saved successfully.';
+      _message = 'Scan complete. Review below and press Save to keep it.';
+      _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
+      // Store tests in widget state only — temporary until user confirms save
+      _pendingOcrTests = tests.whereType<Map>().toList();
+    });
+  }
+
+  // Step 2 of 2: user explicitly confirms — now save to the database.
+  Future<void> _saveOcrResult() async {
+    if (_ocrPatientId == null || _ocrLabId == null || _pendingOcrTests.isEmpty) return;
+
+    // Build the same pipe-separated string used by _submitManual
+    final resultStr = _pendingOcrTests
+        .map((t) => '${t['name'] ?? t['Name']}: ${t['value'] ?? t['Value']}')
+        .join(' | ');
+
+    setState(() { _busy = true; _message = null; });
+
+    final res = await apiService.addMedicalTest(MedicalTestRequest(
+      name: 'CBC', result: resultStr,
+      patientId: _ocrPatientId!, labId: _ocrLabId!,
+    ));
+    if (res.ok && _ocrAppointmentId != null) {
+      await apiService.updateLabAppointmentStatus(_ocrAppointmentId!, 'Completed');
+    }
+    await _refresh();
+    if (!mounted) return;
+    setState(() {
+      _busy = false; _isError = !res.ok;
+      _message = res.ok ? 'Results saved successfully.' : (res.error ?? 'Failed to save.');
+      if (res.ok) {
+        // Clear the pending preview after successful save
+        _pendingOcrTests = []; _pendingFileName = '';
+        _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
+      }
+    });
+  }
+
+  // Discard the pending preview without saving anything
+  void _discardOcrResult() {
+    setState(() {
+      _pendingOcrTests = []; _pendingFileName = '';
+      _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
+      _message = null;
     });
   }
 
@@ -223,7 +291,19 @@ class _TestsPageState extends State<TestsPage> {
                 if (_busy) const LinearProgressIndicator(minHeight: 2),
                 if (_busy) const SizedBox(height: 12),
 
-                // Manual entry panel — appears after unreadable OCR
+                // OCR preview panel — temporary, shown before user saves
+                if (_pendingOcrTests.isNotEmpty) ...[
+                  _OcrPreviewPanel(
+                    tests: _pendingOcrTests,
+                    fileName: _pendingFileName,
+                    onSave: _busy ? null : _saveOcrResult,
+                    onDiscard: _busy ? null : _discardOcrResult,
+                    busy: _busy,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // Manual entry panel — appears after partially unreadable OCR
                 if (_ocrResult != null && _manualCtrls.isNotEmpty) ...[
                   _ManualEntryPanel(
                     ctrls: _manualCtrls,
@@ -320,6 +400,110 @@ class _TestsPageState extends State<TestsPage> {
   }
 }
 
+// ── OCR Preview Panel ─────────────────────────────────────────
+// Displays the OCR result temporarily in memory.
+// Nothing is saved to the database until the user presses "Save".
+// Pressing "Discard" clears the preview with no side effects.
+// This widget is never shown after an app restart — state is not persisted.
+
+class _OcrPreviewPanel extends StatelessWidget {
+  final List<Map> tests;
+  final String    fileName;
+  final VoidCallback? onSave;
+  final VoidCallback? onDiscard;
+  final bool busy;
+
+  const _OcrPreviewPanel({
+    required this.tests,
+    required this.fileName,
+    required this.onSave,
+    required this.onDiscard,
+    required this.busy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Header
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Row(children: [
+          Icon(Icons.document_scanner_outlined, size: 18,
+              color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt),
+          const SizedBox(width: 8),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Scan Preview — not saved yet',
+                style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
+                    color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)),
+            if (fileName.isNotEmpty)
+              Text(fileName,
+                  style: GoogleFonts.dmSans(fontSize: 11,
+                      color: (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)
+                          .withOpacity(0.75))),
+          ])),
+        ]),
+      ),
+
+      // Results: one chip per test showing Name: value
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Wrap(spacing: 6, runSpacing: 6,
+            children: tests.map((t) {
+              // Support both camelCase (from OCR analysis) and PascalCase keys
+              final name   = (t['name']   ?? t['Name']   ?? '').toString();
+              final value  = (t['value']  ?? t['Value']  ?? '').toString();
+              final status = (t['status'] ?? t['Status'] ?? '').toString();
+              final isAlert = status == 'Low' || status == 'High';
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isAlert
+                      ? (isDark ? AppColors.darkBadgeRedBg    : AppColors.badgeRedBg)
+                      : (isDark ? AppColors.darkBadgeGreenBg  : AppColors.badgeGreenBg),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                // Display each field as "Name: value" with alert label if abnormal
+                child: Text(
+                  '$name: $value${isAlert ? " ($status)" : ""}',
+                  style: GoogleFonts.dmMono(fontSize: 11, fontWeight: FontWeight.w500,
+                      color: isAlert
+                          ? (isDark ? AppColors.darkBadgeRedTxt  : AppColors.badgeRedTxt)
+                          : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)),
+                ),
+              );
+            }).toList()),
+      ),
+
+      // Save / Discard buttons
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        child: Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            onPressed: onDiscard,
+            icon: const Icon(Icons.close, size: 15),
+            label: const Text('Discard'),
+          )),
+          const SizedBox(width: 12),
+          Expanded(child: ElevatedButton.icon(
+            onPressed: onSave,
+            icon: busy
+                ? const SizedBox(width: 14, height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.save_outlined, size: 15),
+            label: const Text('Save'),
+          )),
+        ]),
+      ),
+    ]));
+  }
+}
+
 // ── Manual Entry Panel ────────────────────────────────────────
 
 class _ManualEntryPanel extends StatelessWidget {
@@ -336,8 +520,13 @@ class _ManualEntryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark   = Theme.of(context).brightness == Brightness.dark;
+    // ── Bug 1 fix: correctly identify recognised fields ──
+    // A field is "recognised" when its status is anything other than 'UnreadableValue'
+    // (Normal, Low, and High all have a valid parsed value).
+    // We do NOT filter by value != 0 because 0 is a valid reading
+    // (e.g. Basophils = 0.05 would be cast to 0 with the old num check).
     final readable = ocrTests
-        .where((t) => (t as Map)['status'] != 'UnreadableValue' && (t['value'] as num? ?? 0) != 0)
+        .where((t) => (t as Map)['status'] != 'UnreadableValue')
         .toList();
 
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -357,13 +546,30 @@ class _ManualEntryPanel extends StatelessWidget {
         ]),
       ),
 
-      if (readable.isNotEmpty)
+      if (readable.isNotEmpty) ...[
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text('Recognised values (read-only):',
+              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+                  letterSpacing: 0.05)),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Wrap(spacing: 6, runSpacing: 6,
               children: readable.map((t) {
-                final m      = t as Map;
+                final m = t as Map;
                 final isAlert = m['status'] == 'Low' || m['status'] == 'High';
+
+                // ── Bug 1 fix: safely format the value as a plain string ──
+                // m['value'] is a num from the backend JSON. We call toString()
+                // explicitly so it always renders as "13.5" and never as a
+                // raw Map/object literal if the type ever changes unexpectedly.
+                final rawVal = m['value'];
+                final displayVal = (rawVal is num)
+                    ? rawVal.toString()          // e.g. "13.5" or "310"
+                    : (rawVal?.toString() ?? '—'); // graceful fallback
+
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -373,7 +579,8 @@ class _ManualEntryPanel extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    '${m['name']}: ${m['value']}${isAlert ? ' (${m['status']})' : ''}',
+                    // Display: "Name: value" and append status if abnormal
+                    '${m['name']}: $displayVal${isAlert ? ' (${m['status']})' : ''}',
                     style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w500,
                         color: isAlert
                             ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
@@ -382,6 +589,7 @@ class _ManualEntryPanel extends StatelessWidget {
                 );
               }).toList()),
         ),
+      ],
 
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -541,9 +749,32 @@ class _TestTile extends StatelessWidget {
     final labName = app.labName(test.labId) ?? 'Lab #${test.labId}';
     final patName = app.patientName(test.patientId) ?? 'Patient #${test.patientId}';
 
-    // If result has | separators show as chips, else plain text
-    final parts = test.result.contains('|')
-        ? test.result.split('|').map((s) => s.trim()).toList() : <String>[];
+    // ── Bug 1 fix: parse result as JSON if the backend stored it that way ──
+    // The backend may store the OCR analysis directly as a JSON string in the
+    // result field (e.g. {"Status":"Warning","Tests":[{"Name":"Hemoglobin",...}]}).
+    // We try to decode it and extract the Tests array. If that succeeds we render
+    // each test as a name+value chip. If parsing fails we fall back to the
+    // existing pipe-separated chip path, and finally to plain text.
+
+    // Step 1: attempt JSON decode
+    List<Map> jsonTests = [];
+    try {
+      final decoded = jsonDecode(test.result);
+      if (decoded is Map) {
+        // Backend key may be 'Tests' (PascalCase) or 'tests' (camelCase)
+        final rawList = decoded['Tests'] ?? decoded['tests'];
+        if (rawList is List) {
+          jsonTests = rawList.whereType<Map>().toList();
+        }
+      }
+    } catch (_) {
+      // Not JSON — fall through to pipe/plain-text paths below
+    }
+
+    // Step 2: pipe-separated chips (legacy format: "Name: value | Name: value")
+    final parts = jsonTests.isEmpty && test.result.contains('|')
+        ? test.result.split('|').map((s) => s.trim()).toList()
+        : <String>[];
 
     return AppCard(
       padding: const EdgeInsets.all(14),
@@ -559,7 +790,39 @@ class _TestTile extends StatelessWidget {
             color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
         if (test.result.isNotEmpty) ...[
           const SizedBox(height: 8),
-          if (parts.isNotEmpty)
+
+          // Path A: JSON format — render each Test entry as "Name: Value" chip
+          if (jsonTests.isNotEmpty)
+            Wrap(spacing: 6, runSpacing: 6, children: jsonTests.map((t) {
+              // Keys may be PascalCase or camelCase depending on backend serialiser
+              final name   = (t['Name']   ?? t['name']   ?? '').toString();
+              final value  = (t['Value']  ?? t['value']  ?? '').toString();
+              final status = (t['Status'] ?? t['status'] ?? '').toString();
+              final isAlert = status == 'Low' || status == 'High';
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isAlert
+                      ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
+                      : (isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF5F7FB)),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: isAlert
+                      ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt).withOpacity(0.3)
+                      : (isDark ? AppColors.darkBorderColor : AppColors.borderColor)),
+                ),
+                // Display "Name: value" and mark abnormal with (Low)/(High)
+                child: Text(
+                  '$name: $value${isAlert ? " ($status)" : ""}',
+                  style: GoogleFonts.dmMono(fontSize: 11,
+                      color: isAlert
+                          ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                          : (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
+                ),
+              );
+            }).toList())
+
+          // Path B: pipe-separated format — existing chip rendering
+          else if (parts.isNotEmpty)
             Wrap(spacing: 6, runSpacing: 6, children: parts.map((p) {
               final isAlert = p.toLowerCase().contains('(high)') || p.toLowerCase().contains('(low)');
               return Container(
@@ -579,6 +842,8 @@ class _TestTile extends StatelessWidget {
                         : (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
               );
             }).toList())
+
+          // Path C: plain text fallback
           else
             Text(test.result, style: GoogleFonts.dmSans(fontSize: 12.5,
                 color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),

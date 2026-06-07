@@ -162,7 +162,8 @@ namespace GraduationProject.Services
             {
                 Name     = request.LabName,
                 Location = request.Location,
-                Phone    = request.Phone
+                Phone    = request.Phone,
+                Email    = request.Email,
             };
 
             await _context.Labs.AddAsync(lab, cancellationToken);

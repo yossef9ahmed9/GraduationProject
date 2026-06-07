@@ -20,8 +20,8 @@ namespace GraduationProject.Controllers
             var messages = await _context.ChatMessages
                 .AsNoTracking()
                 .Where(m =>
-                    (m.SenderEmail == myEmail && m.ReceiverEmail == otherEmail) ||
-                    (m.SenderEmail == otherEmail && m.ReceiverEmail == myEmail))
+                    (m.SenderEmail == myEmail && m.ReceiverEmail == otherEmail && !m.DeletedBySender) ||
+                    (m.SenderEmail == otherEmail && m.ReceiverEmail == myEmail && !m.DeletedByReceiver))
                 .OrderByDescending(m => m.SentAt)
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
@@ -94,6 +94,101 @@ namespace GraduationProject.Controllers
                 .CountAsync(m => m.ReceiverEmail == myEmail && !m.IsRead, cancellationToken);
 
             return Ok(new { unreadCount = count });
+        }
+
+        // DELETE /api/chat/message/{id}  — delete for me only (soft delete per user)
+        [HttpDelete("message/{id}")]
+        public async Task<IActionResult> DeleteMessage(
+            int id,
+            CancellationToken cancellationToken = default)
+        {
+            var myEmail = User.FindFirst("email")?.Value
+                       ?? User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+
+            var msg = await _context.ChatMessages
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
+
+            if (msg is null) return NotFound();
+
+            if (msg.SenderEmail == myEmail)
+                msg.DeletedBySender = true;
+            else if (msg.ReceiverEmail == myEmail)
+                msg.DeletedByReceiver = true;
+            else
+                return Forbid();
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return NoContent();
+        }
+
+        // DELETE /api/chat/message/{id}/all  — delete for everyone
+        [HttpDelete("message/{id}/all")]
+        public async Task<IActionResult> DeleteMessageForEveryone(
+            int id,
+            CancellationToken cancellationToken = default)
+        {
+            var myEmail = User.FindFirst("email")?.Value
+                       ?? User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+
+            var msg = await _context.ChatMessages
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
+
+            if (msg is null) return NotFound();
+            if (msg.SenderEmail != myEmail) return Forbid();
+
+            msg.DeletedBySender   = true;
+            msg.DeletedByReceiver = true;
+            msg.Content           = "🗑️ This message was deleted";
+            await _context.SaveChangesAsync(cancellationToken);
+            return NoContent();
+        }
+
+        // DELETE /api/chat/conversation/{otherEmail}  — clear for me only
+        [HttpDelete("conversation/{otherEmail}")]
+        public async Task<IActionResult> ClearConversation(
+            string otherEmail,
+            CancellationToken cancellationToken = default)
+        {
+            var myEmail = User.FindFirst("email")?.Value
+                       ?? User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+
+            await _context.ChatMessages
+                .IgnoreQueryFilters()
+                .Where(m => m.SenderEmail == myEmail && m.ReceiverEmail == otherEmail)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.DeletedBySender, true), cancellationToken);
+
+            await _context.ChatMessages
+                .IgnoreQueryFilters()
+                .Where(m => m.SenderEmail == otherEmail && m.ReceiverEmail == myEmail)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.DeletedByReceiver, true), cancellationToken);
+
+            return NoContent();
+        }
+
+        // DELETE /api/chat/conversation/{otherEmail}/all  — clear for everyone
+        [HttpDelete("conversation/{otherEmail}/all")]
+        public async Task<IActionResult> ClearConversationForEveryone(
+            string otherEmail,
+            CancellationToken cancellationToken = default)
+        {
+            var myEmail = User.FindFirst("email")?.Value
+                       ?? User.FindFirst(ClaimTypes.Email)?.Value ?? "";
+
+            await _context.ChatMessages
+                .IgnoreQueryFilters()
+                .Where(m =>
+                    (m.SenderEmail == myEmail && m.ReceiverEmail == otherEmail) ||
+                    (m.SenderEmail == otherEmail && m.ReceiverEmail == myEmail))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(m => m.DeletedBySender,   true)
+                    .SetProperty(m => m.DeletedByReceiver, true)
+                    .SetProperty(m => m.IsDeleted,         true)
+                    .SetProperty(m => m.DeletedAtUtc,      DateTime.UtcNow),
+                    cancellationToken);
+
+            return NoContent();
         }
     }
 }

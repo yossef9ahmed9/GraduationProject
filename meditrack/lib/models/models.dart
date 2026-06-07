@@ -220,26 +220,31 @@ class DoctorResponse {
 }
 
 // ── Lab ───────────────────────────────────────────────────────
+
 class LabResponse {
-  final int id;
+  final int    id;
   final String name;
   final String location;
   final String phone;
+  final String email;   // ← جديد — مطلوب للـ Chat
 
   const LabResponse({
     required this.id,
     required this.name,
     required this.location,
     required this.phone,
+    required this.email,
   });
 
   factory LabResponse.fromJson(Map<String, dynamic> j) => LabResponse(
-    id:       j['id'] as int? ?? 0,
-    name:     j['labName'] as String? ?? j['name'] as String? ?? '',
+    id:       j['id']       as int?    ?? 0,
+    name:     j['labName']  as String? ?? j['name']  as String? ?? '',
     location: j['location'] as String? ?? '',
-    phone:    j['phone'] as String? ?? '',
+    phone:    j['phone']    as String? ?? '',
+    email:    j['email']    as String? ?? '',
   );
 }
+
 
 // ── Follow-Up ─────────────────────────────────────────────────
 class FollowUpResponse {

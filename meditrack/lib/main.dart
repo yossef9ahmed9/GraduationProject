@@ -1,20 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/services/theme_provider.dart';
+import 'package:meditrack/services/notification_provider.dart';
+import 'package:meditrack/services/fcm_service.dart';
+import 'package:meditrack/services/chat_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/screens/login_screen.dart';
 import 'package:meditrack/screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise Firebase (required before anything Firebase-related)
+  await Firebase.initializeApp();
+
   await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
+    DeviceOrientation.portraitUp, DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight,
   ]);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -26,6 +32,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AppProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: const MediTrackApp(),
     ),
@@ -34,7 +41,6 @@ void main() async {
 
 class MediTrackApp extends StatelessWidget {
   const MediTrackApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     final themeMode = context.watch<ThemeProvider>().mode;
@@ -57,18 +63,31 @@ class _Splash extends StatefulWidget {
 
 class _SplashState extends State<_Splash> {
   @override
-  void initState() {
-    super.initState();
-    _init();
-  }
+  void initState() { super.initState(); _init(); }
 
   Future<void> _init() async {
-    final auth = context.read<AuthProvider>();
-    final app  = context.read<AppProvider>();
+    final auth   = context.read<AuthProvider>();
+    final app    = context.read<AppProvider>();
+    final notifs = context.read<NotificationProvider>();
+
     final restored = await auth.tryRestoreSession();
     if (!mounted) return;
+
     if (restored) {
       await app.loadAll(auth.role);
+      // Init chat + notifications after login
+      await chatService.connect(auth.user!.token, auth.user!.email);
+      notifs.init(auth.user!.email);
+
+      // Init FCM push notifications
+      await fcmService.init(
+        userEmail: auth.user!.email,
+        authToken: auth.user!.token,
+      );
+      fcmService.onMessageReceived = (title, body, data) {
+        notifs.addFromFcm(title: title, body: body, data: data);
+      };
+
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()));
@@ -83,26 +102,17 @@ class _SplashState extends State<_Splash> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkBgBase : AppColors.bgBase,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64, height: 64,
-              decoration: BoxDecoration(
-                gradient: isDark ? AppColors.darkLogoGradient : AppColors.logoGradient,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [BoxShadow(
-                    color: AppColors.accent.withOpacity(0.35),
-                    blurRadius: 20, offset: const Offset(0, 6))],
-              ),
-              child: const Icon(Icons.monitor_heart_outlined, color: Colors.white, size: 34),
+      body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 64, height: 64,
+            decoration: BoxDecoration(
+              gradient: isDark ? AppColors.darkLogoGradient : AppColors.logoGradient,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [BoxShadow(color: AppColors.accent.withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 6))],
             ),
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(),
-          ],
-        ),
-      ),
+            child: const Icon(Icons.monitor_heart_outlined, color: Colors.white, size: 34)),
+        const SizedBox(height: 20),
+        const CircularProgressIndicator(),
+      ])),
     );
   }
 }

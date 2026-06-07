@@ -928,6 +928,22 @@ class ApiService {
   Future<ApiResult<bool>> registerFcmToken(String userEmail, String fcmToken) =>
       _post('/fcm/register', {'userEmail': userEmail, 'fcmToken': fcmToken},
           (_) => true);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CHAT — /api/chat
+  // ═══════════════════════════════════════════════════════════════════
+
+  Future<ApiResult<bool>> deleteMessage(int messageId) =>
+      _delete('/chat/message/$messageId');
+
+  Future<ApiResult<bool>> deleteMessageForEveryone(int messageId) =>
+      _delete('/chat/message/$messageId/all');
+
+  Future<ApiResult<bool>> clearConversation(String otherEmail) =>
+      _delete('/chat/conversation/${Uri.encodeComponent(otherEmail)}');
+
+  Future<ApiResult<bool>> clearConversationForEveryone(String otherEmail) =>
+      _delete('/chat/conversation/${Uri.encodeComponent(otherEmail)}/all');
 }
 
 // Global singleton

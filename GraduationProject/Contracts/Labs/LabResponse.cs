@@ -4,6 +4,7 @@ namespace GraduationProject.Contracts.Labs
         int Id,
         string Name,
         string Location,
-        string Phone
+        string Phone,
+        string Email
     );
 }

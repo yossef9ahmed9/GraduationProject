@@ -11,5 +11,9 @@ namespace GraduationProject.Entities
         public bool IsRead { get; set; } = false;
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAtUtc { get; set; }
+
+        // Per-user delete — only hides message for that user, not both
+        public bool DeletedBySender   { get; set; } = false;
+        public bool DeletedByReceiver { get; set; } = false;
     }
 }
