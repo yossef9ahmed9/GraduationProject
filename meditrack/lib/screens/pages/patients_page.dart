@@ -175,7 +175,7 @@ class _PatientCard extends StatelessWidget {
     return AppCard(
       padding: const EdgeInsets.all(14),
       child: Row(children: [
-        AvatarWidget(initials: patient.initials, size: 40, fontSize: 14),
+        AvatarWidget(initials: patient.initials, size: 40, fontSize: 14, photoUrl: patient.profilePictureUrl),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -45,16 +45,6 @@ namespace GraduationProject.Controllers
                 : result.ToProblem();
         }
 
-        [HttpPut("{id}/availability")]
-        public async Task<IActionResult> UpdateAvailability(int id, [FromBody] UpdateDoctorAvailabilityRequest request, CancellationToken cancellationToken)
-        {
-            var result = await _service.UpdateAvailabilityAsync(id, request.IsAvailable, cancellationToken);
-
-            return result.IsSuccess
-                ? NoContent()
-                : result.ToProblem();
-        }
-
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
         {

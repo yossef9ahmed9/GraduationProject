@@ -82,7 +82,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Ambulances");
+                    b.ToTable("Ambulances", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.ApplicationUser", b =>
@@ -131,6 +131,9 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("bit");
+
+                    b.Property<string>("ProfilePictureUrl")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("nvarchar(max)");
@@ -206,7 +209,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasIndex("SenderEmail", "ReceiverEmail", "SentAt")
                         .HasDatabaseName("IX_ChatMessages_SenderEmail_ReceiverEmail_SentAt");
 
-                    b.ToTable("ChatMessages");
+                    b.ToTable("ChatMessages", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.Doctor", b =>
@@ -216,6 +219,18 @@ namespace GraduationProject.Persistence.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClinicAddress")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<double?>("ClinicLatitude")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("ClinicLongitude")
+                        .HasColumnType("float");
+
+                    b.Property<string>("ClinicName")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("datetime2");
@@ -230,9 +245,6 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.Property<string>("HospitalName")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsAvailable")
-                        .HasColumnType("bit");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
@@ -257,7 +269,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Doctors");
+                    b.ToTable("Doctors", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.EmergencyDispatch", b =>
@@ -308,7 +320,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("EmergencyDispatches");
+                    b.ToTable("EmergencyDispatches", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.FollowUp", b =>
@@ -366,7 +378,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("FollowUps");
+                    b.ToTable("FollowUps", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.Lab", b =>
@@ -390,10 +402,16 @@ namespace GraduationProject.Persistence.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("float");
+
                     b.Property<string>("Location")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("float");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -407,7 +425,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Labs");
+                    b.ToTable("Labs", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.LabAppointment", b =>
@@ -457,7 +475,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("LabAppointments");
+                    b.ToTable("LabAppointments", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.MedicalTest", b =>
@@ -503,7 +521,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("MedicalTests");
+                    b.ToTable("MedicalTests", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.Patient", b =>
@@ -581,7 +599,7 @@ namespace GraduationProject.Persistence.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Patients", t =>
+                    b.ToTable("Patients", null, t =>
                         {
                             t.HasCheckConstraint("CK_Patient_Gender", "Gender IN ('male','female')");
                         });
@@ -619,7 +637,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.Relative", b =>
@@ -667,7 +685,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("Relatives");
+                    b.ToTable("Relatives", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.RelativePatientRequest", b =>
@@ -707,7 +725,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("RelativeId");
 
-                    b.ToTable("RelativePatientRequests");
+                    b.ToTable("RelativePatientRequests", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.Sensor", b =>
@@ -747,7 +765,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.ToTable("Sensors");
+                    b.ToTable("Sensors", (string)null);
                 });
 
             modelBuilder.Entity("GraduationProject.Entities.VitalSigns", b =>
@@ -788,7 +806,7 @@ namespace GraduationProject.Persistence.Migrations
 
                     b.HasIndex("SensorId");
 
-                    b.ToTable("VitalSigns");
+                    b.ToTable("VitalSigns", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>

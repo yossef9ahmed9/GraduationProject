@@ -159,7 +159,7 @@ class _RelativeDash extends StatelessWidget {
     final latest = linked != null ? app.latestVitalForPatient(linked.id) : null;
     final hrHigh = (latest?.heartRate ?? 0) > 100;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _WelcomeBanner(icon: Icons.group_outlined, text: 'Family dashboard — Monitoring health status for your linked patient.'),
+      _WelcomeBanner(icon: Icons.home_outlined, text: 'Home — Monitoring health status for your linked patient.'),
       const SizedBox(height: 16),
       if (hrHigh) ...[
         EmergencyBanner(text: '${linked?.name ?? 'Patient'} — Heart rate ${latest!.heartRate} bpm (elevated)',
@@ -377,7 +377,7 @@ class _PatientRow extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(children: [
-        AvatarWidget(initials: patient.initials),
+        AvatarWidget(initials: patient.initials, photoUrl: patient.profilePictureUrl),
         const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(patient.name, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w500)),

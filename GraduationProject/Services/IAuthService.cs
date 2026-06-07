@@ -32,5 +32,11 @@ namespace GraduationProject.Services
         Task<Result> ForgotPasswordAsync(string email);
 
         Task<Result> ResetPasswordAsync(ResetPasswordRequest request);
+
+        Task<Result> ChangePasswordAsync(string email, string currentPassword, string newPassword);
+
+        Task<Result> UpdateNameAsync(string email, string newName);
+
+        Task<Result<string>> UploadProfilePictureAsync(string email, IFormFile file, string webRootPath);
     }
 }

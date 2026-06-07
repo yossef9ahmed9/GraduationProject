@@ -21,12 +21,25 @@ namespace GraduationProject.Services
                     if (expired > 0)
                         logger.LogInformation("Cleaned up {Count} expired/revoked refresh tokens", expired);
                 }
+                catch (OperationCanceledException)
+                {
+                    // Server is shutting down — normal, not an error
+                    break;
+                }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error during refresh token cleanup");
                 }
 
-                await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Server is shutting down mid-wait — normal, not an error
+                    break;
+                }
             }
         }
     }

@@ -6,26 +6,58 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<PagedResponse<DoctorResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
+        // Fetch ProfilePictureUrl for a set of emails in one query, in-memory lookup
+        private async Task<Dictionary<string, string?>> GetPicMapAsync(
+            IEnumerable<string> emails, CancellationToken ct) =>
+            await _context.Users
+                .AsNoTracking()
+                .Where(u => emails.Contains(u.Email!))
+                .Select(u => new { u.Email, u.ProfilePictureUrl })
+                .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, ct);
+
+        public async Task<PagedResponse<DoctorResponse>> GetAllAsync(
+            int pageNumber = 1, int pageSize = 10,
+            CancellationToken cancellationToken = default)
         {
-            return await _context.Doctors
+            var totalCount = await _context.Doctors.CountAsync(cancellationToken);
+
+            var doctors = await _context.Doctors
                 .AsNoTracking()
                 .OrderBy(d => d.Id)
-                .ProjectToType<DoctorResponse>()
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            var picMap = await GetPicMapAsync(doctors.Select(d => d.Email), cancellationToken);
+
+            var items = doctors.Select(d => d.Adapt<DoctorResponse>() with
+            {
+                ProfilePictureUrl = picMap.GetValueOrDefault(d.Email)
+            }).ToList();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            return new PagedResponse<DoctorResponse>(
+                items, pageNumber, pageSize, totalCount,
+                totalPages, pageNumber > 1, pageNumber < totalPages);
         }
 
-        public async Task<Result<DoctorResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
+        public async Task<Result<DoctorResponse>> GetAsync(int id,
+            CancellationToken cancellationToken = default)
         {
             var doctor = await _context.Doctors
                 .AsNoTracking()
                 .Where(d => d.Id == id)
-                .ProjectToType<DoctorResponse>()
                 .FirstOrDefaultAsync(cancellationToken);
 
-            return doctor == null
-                ? Result.Failure<DoctorResponse>(DoctorErors.DoctorNotFound)
-                : Result.Success(doctor);
+            if (doctor == null)
+                return Result.Failure<DoctorResponse>(DoctorErors.DoctorNotFound);
+
+            var picMap = await GetPicMapAsync([doctor.Email], cancellationToken);
+            var response = doctor.Adapt<DoctorResponse>() with
+            {
+                ProfilePictureUrl = picMap.GetValueOrDefault(doctor.Email)
+            };
+            return Result.Success(response);
         }
 
         public async Task<Result<DoctorResponse>> AddAsync(DoctorRequest request, CancellationToken cancellationToken = default)
@@ -59,19 +91,6 @@ namespace GraduationProject.Services
 
             request.Adapt(doctor);
 
-            await _context.SaveChangesAsync(cancellationToken);
-
-            return Result.Success();
-        }
-
-        public async Task<Result> UpdateAvailabilityAsync(int id, bool isAvailable, CancellationToken cancellationToken = default)
-        {
-            var doctor = await _context.Doctors.FindAsync(new object[] { id }, cancellationToken);
-
-            if (doctor == null)
-                return Result.Failure(DoctorErors.DoctorNotFound);
-
-            doctor.IsAvailable = isAvailable;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Result.Success();

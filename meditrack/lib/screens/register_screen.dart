@@ -19,7 +19,8 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   int _step = 1;
   UserRole? _selectedRole;
-  final _nameCtrl    = TextEditingController();
+  final _nameCtrl    = TextEditingController(); // first name
+  final _lastNameCtrl= TextEditingController(); // last name
   final _emailCtrl   = TextEditingController();
   final _passCtrl    = TextEditingController();
   final _cpassCtrl   = TextEditingController();
@@ -34,6 +35,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _licensePlateCtrl = TextEditingController();
   final _driverNameCtrl   = TextEditingController();
   final _driverPhoneCtrl  = TextEditingController();
+  final _clinicNameCtrl   = TextEditingController();
+  final _clinicAddressCtrl= TextEditingController();
+  final _clinicLatCtrl    = TextEditingController();
+  final _clinicLngCtrl    = TextEditingController();
+  final _labLatCtrl       = TextEditingController();
+  final _labLngCtrl       = TextEditingController();
   String _gender = 'male';
   String _bloodType = 'Unknown';
   bool _obscurePass = true;
@@ -48,30 +55,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    for (final c in [_nameCtrl,_emailCtrl,_passCtrl,_cpassCtrl,_phoneCtrl,_addressCtrl,
+    for (final c in [_nameCtrl,_lastNameCtrl,_emailCtrl,_passCtrl,_cpassCtrl,_phoneCtrl,_addressCtrl,
         _medicalCtrl,_specCtrl,_locationCtrl,_relationCtrl,_patientIdCtrl,_stationCtrl,
-        _licensePlateCtrl,_driverNameCtrl,_driverPhoneCtrl]) { c.dispose(); }
+        _licensePlateCtrl,_driverNameCtrl,_driverPhoneCtrl,
+        _clinicNameCtrl,_clinicAddressCtrl,_clinicLatCtrl,_clinicLngCtrl,
+        _labLatCtrl,_labLngCtrl]) { c.dispose(); }
     super.dispose();
   }
 
   Map<String, dynamic>? _buildBody() {
     switch (_selectedRole) {
       case UserRole.patient:
-        return {'fullName': _nameCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
+        return {'fullName': '${_nameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'.trim(),
+          'email': _emailCtrl.text.trim(),
           'password': _passCtrl.text, 'confirmPassword': _cpassCtrl.text,
           'phone': _phoneCtrl.text.trim(), 'address': _addressCtrl.text.trim(),
           'gender': _gender, 'medicalRecord': _medicalCtrl.text.trim(),
           'bloodType': _bloodType};
       case UserRole.doctor:
-        return {'fullName': _nameCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
+        return {
+          'fullName': '${_nameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'.trim(),
+          'email': _emailCtrl.text.trim(),
           'password': _passCtrl.text, 'confirmPassword': _cpassCtrl.text,
-          'phone': _phoneCtrl.text.trim(), 'specialization': _specCtrl.text.trim()};
+          'phone': _phoneCtrl.text.trim(), 'specialization': _specCtrl.text.trim(),
+          if (_clinicNameCtrl.text.trim().isNotEmpty)
+            'clinicName': _clinicNameCtrl.text.trim(),
+          if (_clinicAddressCtrl.text.trim().isNotEmpty)
+            'clinicAddress': _clinicAddressCtrl.text.trim(),
+          if (_clinicLatCtrl.text.trim().isNotEmpty)
+            'clinicLatitude': double.tryParse(_clinicLatCtrl.text.trim()),
+          if (_clinicLngCtrl.text.trim().isNotEmpty)
+            'clinicLongitude': double.tryParse(_clinicLngCtrl.text.trim()),
+        };
       case UserRole.lab:
-        return {'labName': _nameCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
+        return {
+          'labName': _nameCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
           'password': _passCtrl.text, 'confirmPassword': _cpassCtrl.text,
-          'phone': _phoneCtrl.text.trim(), 'location': _locationCtrl.text.trim()};
+          'phone': _phoneCtrl.text.trim(), 'location': _locationCtrl.text.trim(),
+          if (_labLatCtrl.text.trim().isNotEmpty)
+            'latitude': double.tryParse(_labLatCtrl.text.trim()),
+          if (_labLngCtrl.text.trim().isNotEmpty)
+            'longitude': double.tryParse(_labLngCtrl.text.trim()),
+        };
       case UserRole.relative:
-        return {'fullName': _nameCtrl.text.trim(), 'email': _emailCtrl.text.trim(),
+        return {'fullName': '${_nameCtrl.text.trim()} ${_lastNameCtrl.text.trim()}'.trim(),
+          'email': _emailCtrl.text.trim(),
           'password': _passCtrl.text, 'confirmPassword': _cpassCtrl.text,
           'phone': _phoneCtrl.text.trim(), 'relationType': 'Family'};
       case UserRole.ambulance:
@@ -152,7 +180,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     switch (_selectedRole) {
       case UserRole.patient:
-        add('Full Name', _nameCtrl, hint: 'Ahmed Hassan');
+        add('First Name', _nameCtrl, hint: 'Ahmed');
+        add('Last Name',  _lastNameCtrl, hint: 'Hassan');
         add('Email', _emailCtrl, kb: TextInputType.emailAddress, hint: 'ahmed@example.com');
         add('Password', _passCtrl, obscure: true);
         add('Confirm Password', _cpassCtrl, obscure: true);
@@ -181,12 +210,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ]));
         break;
       case UserRole.doctor:
-        add('Full Name', _nameCtrl, hint: 'Dr. Ahmed');
+        add('First Name', _nameCtrl, hint: 'Ahmed');
+        add('Last Name',  _lastNameCtrl, hint: 'Hassan');
         add('Email', _emailCtrl, kb: TextInputType.emailAddress);
         add('Password', _passCtrl, obscure: true);
         add('Confirm Password', _cpassCtrl, obscure: true);
         add('Phone', _phoneCtrl, kb: TextInputType.phone);
         add('Specialization', _specCtrl, hint: 'Cardiology');
+        // Optional clinic info
+        fields.add(Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('CLINIC INFO (OPTIONAL)',
+              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+                  letterSpacing: 0.05)),
+        ));
+        add('Clinic Name', _clinicNameCtrl, hint: 'e.g. Al-Noor Clinic');
+        add('Clinic Address', _clinicAddressCtrl, hint: 'e.g. 12 Tahrir St, Cairo');
+        add('Clinic Latitude', _clinicLatCtrl, kb: const TextInputType.numberWithOptions(decimal: true, signed: true), hint: 'e.g. 30.0444');
+        add('Clinic Longitude', _clinicLngCtrl, kb: const TextInputType.numberWithOptions(decimal: true, signed: true), hint: 'e.g. 31.2357');
         break;
       case UserRole.lab:
         add('Lab Name', _nameCtrl, hint: 'Cairo Central Lab');
@@ -195,9 +237,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
         add('Confirm Password', _cpassCtrl, obscure: true);
         add('Phone', _phoneCtrl, kb: TextInputType.phone);
         add('Location', _locationCtrl, hint: 'Nasr City, Cairo');
+        // Optional coordinates
+        fields.add(Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('LOCATION COORDINATES (OPTIONAL)',
+              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+                  letterSpacing: 0.05)),
+        ));
+        add('Latitude',  _labLatCtrl, kb: const TextInputType.numberWithOptions(decimal: true, signed: true), hint: 'e.g. 30.0444');
+        add('Longitude', _labLngCtrl, kb: const TextInputType.numberWithOptions(decimal: true, signed: true), hint: 'e.g. 31.2357');
         break;
       case UserRole.relative:
-        add('Full Name', _nameCtrl);
+        add('First Name', _nameCtrl);
+        add('Last Name',  _lastNameCtrl);
         add('Email', _emailCtrl, kb: TextInputType.emailAddress);
         add('Password', _passCtrl, obscure: true);
         add('Confirm Password', _cpassCtrl, obscure: true);

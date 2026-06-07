@@ -7,6 +7,10 @@
         string Email,
         string Specialization,
         string? HospitalName,
-        bool IsAvailable
+        string? ClinicName,
+        string? ClinicAddress,
+        double? ClinicLatitude,
+        double? ClinicLongitude,
+        string? ProfilePictureUrl = null
     );
 }

@@ -4,6 +4,10 @@
         string Name,
         string Phone,
         string Email,
-        string Specialization
+        string Specialization,
+        string? ClinicName    = null,
+        string? ClinicAddress = null,
+        double? ClinicLatitude  = null,
+        double? ClinicLongitude = null
     );
 }

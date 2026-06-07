@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using GraduationProject.Contracts.MedicalTests;
 using GraduationProject.Services.OCR;
 
@@ -53,6 +54,7 @@ namespace GraduationProject.Controllers
 
             var text     = _ocrService.ExtractText(bytes);
             var analysis = _analysisService.Analyze(text);
+            var testType = analysis.TestType; // auto-detected by AnalysisService
 
             // If OCR couldn't read any real values, return 200 with IsValidScan=false
             // so the frontend receives a structured response instead of treating it as a crash.
@@ -72,7 +74,7 @@ namespace GraduationProject.Controllers
             if (patientId.HasValue && labId.HasValue)
             {
                 var request = new MedicalTestRequest(
-                    "CBC",
+                    testType,
                     JsonSerializer.Serialize(analysis, new JsonSerializerOptions { WriteIndented = false }),
                     patientId.Value,
                     labId.Value);
@@ -82,9 +84,10 @@ namespace GraduationProject.Controllers
                 if (!saveResult.IsSuccess)
                     return saveResult.ToProblem();
 
-                // Save the original image alongside the result so it can be reviewed later
+                // Save the original image alongside the result
                 var ext          = Path.GetExtension(image.FileName);
-                var fileName     = $"cbc-{saveResult.Value.Id}{ext}";
+                var safeType     = Regex.Replace(testType.ToLowerInvariant(), @"[^a-z0-9]", "-");
+                var fileName     = $"{safeType}-{saveResult.Value.Id}{ext}";
                 var relativePath = await _fileService.SaveFileAsync(bytes, "uploads/lab-reports", fileName);
 
                 await _medicalTestService.UpdateImagePathAsync(

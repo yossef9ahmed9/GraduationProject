@@ -4,26 +4,58 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
+        // Fetch ProfilePictureUrl for a set of emails in one query, in-memory lookup
+        private async Task<Dictionary<string, string?>> GetPicMapAsync(
+            IEnumerable<string> emails, CancellationToken ct) =>
+            await _context.Users
+                .AsNoTracking()
+                .Where(u => emails.Contains(u.Email!))
+                .Select(u => new { u.Email, u.ProfilePictureUrl })
+                .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, ct);
+
         public async Task<PagedResponse<PatientResponse>> GetAllPatientsAsync(
             int pageNumber = 1, int pageSize = 10,
-            CancellationToken cancellationToken = default) =>
-            await _context.Patients
+            CancellationToken cancellationToken = default)
+        {
+            var totalCount = await _context.Patients.CountAsync(cancellationToken);
+
+            var patients = await _context.Patients
                 .AsNoTracking()
                 .OrderBy(p => p.Id)
-                .ProjectToType<PatientResponse>()
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            var picMap = await GetPicMapAsync(patients.Select(p => p.Email), cancellationToken);
+
+            var items = patients.Select(p => p.Adapt<PatientResponse>() with
+            {
+                ProfilePictureUrl = picMap.GetValueOrDefault(p.Email)
+            }).ToList();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            return new PagedResponse<PatientResponse>(
+                items, pageNumber, pageSize, totalCount,
+                totalPages, pageNumber > 1, pageNumber < totalPages);
+        }
 
         public async Task<Result<PatientResponse?>> GetPatientAsync(
             int id, CancellationToken cancellationToken = default)
         {
-            // FIXED: was FindAsync(id, cancellationToken) which passes the token as
-            // a key argument. Correct overload is FindAsync(object[], CancellationToken).
             var patient = await _context.Patients
-                .FindAsync(new object[] { id }, cancellationToken);
+                .AsNoTracking()
+                .Where(p => p.Id == id)
+                .FirstOrDefaultAsync(cancellationToken);
 
-            return patient == null
-                ? Result.Failure<PatientResponse?>(PatientErrors.PatientNotFound)
-                : Result.Success<PatientResponse?>(patient.Adapt<PatientResponse>());
+            if (patient == null)
+                return Result.Failure<PatientResponse?>(PatientErrors.PatientNotFound);
+
+            var picMap = await GetPicMapAsync([patient.Email], cancellationToken);
+            var response = patient.Adapt<PatientResponse>() with
+            {
+                ProfilePictureUrl = picMap.GetValueOrDefault(patient.Email)
+            };
+            return Result.Success<PatientResponse?>(response);
         }
 
         public async Task<Result<PatientResponse>> AddPatientAsync(

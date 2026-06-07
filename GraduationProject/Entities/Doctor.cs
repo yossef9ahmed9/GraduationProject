@@ -8,11 +8,14 @@
         public string Email { get; set; } = string.Empty;
         public string Specialization { get; set; } = string.Empty;
 
-        // NEW: where the doctor works
+        // Where the doctor works
         public string? HospitalName { get; set; }
 
-        // NEW: doctor availability for appointments
-        public bool IsAvailable { get; set; } = true;
+        // Clinic info (optional)
+        public string? ClinicName    { get; set; }
+        public string? ClinicAddress { get; set; }
+        public double? ClinicLatitude  { get; set; }
+        public double? ClinicLongitude { get; set; }
 
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAtUtc { get; set; }

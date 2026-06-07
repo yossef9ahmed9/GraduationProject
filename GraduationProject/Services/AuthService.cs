@@ -44,7 +44,7 @@ namespace GraduationProject.Services
 
             return Result.Success(new AuthResponse(
                 user.Id, user.FullName, user.Email,
-                token, expiresIn * 60, refreshToken));
+                token, expiresIn * 60, refreshToken, user.ProfilePictureUrl));
         }
 
         public async Task<Result<AuthResponse?>> RegisterPatientAsync(
@@ -121,10 +121,14 @@ namespace GraduationProject.Services
 
             var doctor = new Doctor
             {
-                Name           = request.FullName,
-                Email          = request.Email,
-                Phone          = request.Phone,
-                Specialization = request.Specialization
+                Name            = request.FullName,
+                Email           = request.Email,
+                Phone           = request.Phone,
+                Specialization  = request.Specialization,
+                ClinicName      = request.ClinicName,
+                ClinicAddress   = request.ClinicAddress,
+                ClinicLatitude  = request.ClinicLatitude,
+                ClinicLongitude = request.ClinicLongitude,
             };
 
             await _context.Doctors.AddAsync(doctor, cancellationToken);
@@ -160,10 +164,12 @@ namespace GraduationProject.Services
 
             var lab = new Lab
             {
-                Name     = request.LabName,
-                Location = request.Location,
-                Phone    = request.Phone,
-                Email    = request.Email,
+                Name      = request.LabName,
+                Location  = request.Location,
+                Phone     = request.Phone,
+                Email     = request.Email,
+                Latitude  = request.Latitude,
+                Longitude = request.Longitude,
             };
 
             await _context.Labs.AddAsync(lab, cancellationToken);
@@ -266,7 +272,7 @@ namespace GraduationProject.Services
 
             return Result.Success(new AuthResponse(
                 user.Id, user.FullName, user.Email,
-                token, expiresIn * 60, refreshToken));
+                token, expiresIn * 60, refreshToken, user.ProfilePictureUrl));
         }
 
         public async Task<Result<AuthResponse?>> RefreshTokenAsync(string token)
@@ -346,6 +352,100 @@ namespace GraduationProject.Services
                 return Result.Failure(UserErrors.InvalidResetToken);
 
             return Result.Success();
+        }
+
+        public async Task<Result> ChangePasswordAsync(string email, string currentPassword, string newPassword)
+        {
+            var user = await _userManager.FindByEmailAsync(email);
+            if (user is null)
+                return Result.Failure(UserErrors.InvalidCredentials);
+
+            var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+            if (!result.Succeeded)
+            {
+                var isWrong = result.Errors.Any(e => e.Code == "PasswordMismatch");
+                return Result.Failure(isWrong
+                    ? UserErrors.IncorrectCurrentPassword
+                    : UserErrors.PasswordChangeFailed);
+            }
+
+            return Result.Success();
+        }
+
+        public async Task<Result> UpdateNameAsync(string email, string newName)
+        {
+            if (string.IsNullOrWhiteSpace(newName))
+                return Result.Failure(UserErrors.NameUpdateFailed);
+
+            var user = await _userManager.FindByEmailAsync(email);
+            if (user is null)
+                return Result.Failure(UserErrors.InvalidCredentials);
+
+            // Update Identity user
+            user.FullName = newName.Trim();
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return Result.Failure(UserErrors.NameUpdateFailed);
+
+            // Mirror to the role-specific entity so existing queries stay consistent
+            var patient   = await _context.Patients.FirstOrDefaultAsync(p => p.Email == email);
+            var doctor    = await _context.Doctors.FirstOrDefaultAsync(d => d.Email == email);
+            var lab       = await _context.Labs.FirstOrDefaultAsync(l => l.Email == email);
+            var relative  = await _context.Relatives.FirstOrDefaultAsync(r => r.Email == email);
+            var ambulance = await _context.Ambulances.FirstOrDefaultAsync(a => a.Email == email);
+
+            if (patient   != null) patient.Name          = newName.Trim();
+            if (doctor    != null) doctor.Name            = newName.Trim();
+            if (lab       != null) lab.Name               = newName.Trim();
+            if (relative  != null) relative.Name          = newName.Trim();
+            if (ambulance != null) ambulance.StationName  = newName.Trim();
+
+            await _context.SaveChangesAsync();
+            return Result.Success();
+        }
+
+        public async Task<Result<string>> UploadProfilePictureAsync(string email, IFormFile file, string webRootPath)
+        {
+            if (file == null || file.Length == 0)
+                return Result.Failure<string>(UserErrors.ProfilePictureUploadFailed);
+
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext != ".jpg" && ext != ".jpeg" && ext != ".png")
+                return Result.Failure<string>(UserErrors.InvalidFileType);
+
+            var user = await _userManager.FindByEmailAsync(email);
+            if (user is null)
+                return Result.Failure<string>(UserErrors.InvalidCredentials);
+
+            // Ensure directory exists
+            var folderPath = Path.Combine(webRootPath, "profile-pictures");
+            Directory.CreateDirectory(folderPath);
+
+            // Use a timestamp suffix so every upload gets a unique URL.
+            // This busts both the server file and the client image cache automatically.
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var fileName = $"{user.Id}_{timestamp}{ext}";
+            var filePath = Path.Combine(folderPath, fileName);
+
+            // Delete the old picture file if it exists to avoid accumulating old files
+            if (!string.IsNullOrEmpty(user.ProfilePictureUrl))
+            {
+                var oldFileName = Path.GetFileName(user.ProfilePictureUrl);
+                var oldFilePath = Path.Combine(folderPath, oldFileName);
+                if (File.Exists(oldFilePath))
+                    File.Delete(oldFilePath);
+            }
+
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            var url = $"/profile-pictures/{fileName}";
+            user.ProfilePictureUrl = url;
+            await _userManager.UpdateAsync(user);
+
+            return Result.Success<string>(url);
         }
     }
 }

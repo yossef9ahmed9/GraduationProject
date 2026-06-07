@@ -7,6 +7,7 @@
         string? Email,
         string Token,
         int ExpiresIn,
-        string RefreshToken
+        string RefreshToken,
+        string? ProfilePictureUrl = null
     );
 }

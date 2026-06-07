@@ -34,7 +34,15 @@ class AuthProvider extends ChangeNotifier {
 
   AppUser _buildUser(AuthResponse r) {
     final role = _decodeRole(r.token);
-    return AppUser(id: r.id, name: r.fullName.isNotEmpty ? r.fullName : r.email, email: r.email, role: role, token: r.token, refreshToken: r.refreshToken);
+    return AppUser(
+      id: r.id,
+      name: r.fullName.isNotEmpty ? r.fullName : r.email,
+      email: r.email,
+      role: role,
+      token: r.token,
+      refreshToken: r.refreshToken,
+      profilePictureUrl: r.profilePictureUrl,
+    );
   }
 
   Future<bool> login(String email, String password) async {
@@ -77,6 +85,11 @@ class AuthProvider extends ChangeNotifier {
       await prefs.setString('mt_name',    _user!.name);
       await prefs.setString('mt_email',   _user!.email);
       await prefs.setString('mt_role',    _user!.role);
+      if (_user!.profilePictureUrl != null) {
+        await prefs.setString('mt_pic', _user!.profilePictureUrl!);
+      } else {
+        await prefs.remove('mt_pic');
+      }
     } catch (_) {}
   }
 
@@ -103,9 +116,34 @@ class AuthProvider extends ChangeNotifier {
         id: prefs.getString('mt_id') ?? '', name: prefs.getString('mt_name') ?? '',
         email: prefs.getString('mt_email') ?? '', role: prefs.getString('mt_role') ?? 'Patient',
         token: token, refreshToken: prefs.getString('mt_refresh') ?? '',
+        profilePictureUrl: prefs.getString('mt_pic'),
       );
       notifyListeners(); return true;
     } catch (_) { return false; }
+  }
+
+  /// Updates the in-memory user name and persists it after a successful API call.
+  Future<void> refreshName(String newName) async {
+    if (_user == null) return;
+    _user = AppUser(
+      id: _user!.id, name: newName, email: _user!.email,
+      role: _user!.role, token: _user!.token, refreshToken: _user!.refreshToken,
+      profilePictureUrl: _user!.profilePictureUrl,
+    );
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Updates the in-memory profile picture URL and persists it.
+  Future<void> refreshProfilePic(String url) async {
+    if (_user == null) return;
+    _user = AppUser(
+      id: _user!.id, name: _user!.name, email: _user!.email,
+      role: _user!.role, token: _user!.token, refreshToken: _user!.refreshToken,
+      profilePictureUrl: url,
+    );
+    await _persist();
+    notifyListeners();
   }
 
   Future<void> logout() async {
@@ -118,6 +156,7 @@ class AuthProvider extends ChangeNotifier {
     await prefs.remove('mt_token'); await prefs.remove('mt_refresh');
     await prefs.remove('mt_id'); await prefs.remove('mt_name');
     await prefs.remove('mt_email'); await prefs.remove('mt_role');
+    await prefs.remove('mt_pic');
   }
 
   void clearError() { _error = null; notifyListeners(); }

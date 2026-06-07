@@ -12,6 +12,10 @@
 
         public string Email { get; set; } = string.Empty;
 
+        // Optional coordinates
+        public double? Latitude  { get; set; }
+        public double? Longitude { get; set; }
+
         public string? FcmToken { get; set; }
 
         public bool IsDeleted { get; set; }

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -23,6 +24,8 @@ import 'package:meditrack/screens/pages/lab_request_page.dart';
 import 'package:meditrack/screens/pages/progress_page.dart';
 import 'package:meditrack/screens/pages/relative_requests_page.dart';
 import 'package:meditrack/screens/pages/relative_chat_page.dart';
+import 'package:meditrack/services/api_service.dart';
+import 'package:meditrack/services/location_service.dart';
 
 class _NavItem {
   final String id, label;
@@ -59,7 +62,7 @@ const _labNav = [
   _NavItem('profile',   'My Account',  Icons.person_outline,      section: 'Settings'),
 ];
 const _relativeNav = [
-  _NavItem('dashboard',    'Dashboard',      Icons.grid_view_rounded,        section: 'Main'),
+  _NavItem('dashboard',    'Home',           Icons.home_outlined,            section: 'Main'),
   _NavItem('vitals',       'Patient Vitals', Icons.monitor_heart_outlined),
   _NavItem('progress',     'Progress',       Icons.show_chart_rounded),
   _NavItem('followups',    'Follow-ups',     Icons.assignment_outlined),
@@ -191,9 +194,17 @@ class _MobileShell extends StatelessWidget {
                 shape: BoxShape.circle),
             child: InkWell(
               onTap: () => onNavigate('profile'),
-              child: Center(child: Text(user?.initials ?? 'U',
-                  style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
-                      color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
+              child: user?.profilePictureUrl != null
+                  ? ClipOval(child: Image.network(
+                      '$serverBase${user!.profilePictureUrl}',
+                      width: 30, height: 30, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Center(child: Text(user?.initials ?? 'U',
+                          style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
+                              color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
+                    ))
+                  : Center(child: Text(user?.initials ?? 'U',
+                      style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
+                          color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
             ),
           ),
         ],
@@ -204,6 +215,11 @@ class _MobileShell extends StatelessWidget {
         onNavigate: (id) { Navigator.of(context).pop(); onNavigate(id); },
         onLogout: () async {
           Navigator.of(context).pop();
+          if (auth.role == UserRole.ambulance) {
+            await apiService.ambulanceSignOut();
+          }
+          locationService.stopPatientTracking();
+          locationService.stopAmbulanceTracking();
           await auth.logout(); app.clear();
           if (context.mounted) Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
@@ -261,6 +277,11 @@ class _TabletShell extends StatelessWidget {
           ),
           Expanded(child: _SideNav(nav: nav, currentPage: currentPage, onNavigate: onNavigate)),
           _LogoutButton(onTap: () async {
+            if (auth.role == UserRole.ambulance) {
+              await apiService.ambulanceSignOut();
+            }
+            locationService.stopPatientTracking();
+            locationService.stopAmbulanceTracking();
             await auth.logout(); app.clear();
             if (context.mounted) Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
@@ -287,7 +308,14 @@ class _TabletShell extends StatelessWidget {
             InkWell(
               onTap: () => onNavigate('profile'),
               child: Row(children: [
-                AvatarWidget(initials: user?.initials ?? 'U'),
+                user?.profilePictureUrl != null
+                    ? CircleAvatar(
+                        radius: 14,
+                        backgroundImage: NetworkImage(
+                            '$serverBase${user!.profilePictureUrl}'),
+                        onBackgroundImageError: (_, __) {},
+                      )
+                    : AvatarWidget(initials: user?.initials ?? 'U'),
                 const SizedBox(width: 8),
                 Text(user?.name ?? '',
                     style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w500)),
@@ -309,6 +337,13 @@ class _SideDrawer extends StatelessWidget {
   const _SideDrawer({required this.nav, required this.role, required this.user,
     required this.currentPage, required this.onNavigate, required this.onLogout});
 
+  Widget _logoIcon(bool isDark) => Container(
+    width: 36, height: 36,
+    decoration: BoxDecoration(
+        gradient: isDark ? AppColors.darkLogoGradient : AppColors.logoGradient,
+        borderRadius: BorderRadius.circular(10)),
+    child: const Icon(Icons.monitor_heart_outlined, color: Colors.white, size: 20));
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -316,11 +351,22 @@ class _SideDrawer extends StatelessWidget {
       backgroundColor: isDark ? AppColors.darkBgSidebar : AppColors.bgSidebar,
       child: Column(children: [
         DrawerHeader(child: Row(children: [
-          Container(width: 36, height: 36,
-              decoration: BoxDecoration(
-                  gradient: isDark ? AppColors.darkLogoGradient : AppColors.logoGradient,
-                  borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.monitor_heart_outlined, color: Colors.white, size: 20)),
+          // Profile photo if available, else MediTrack icon
+          Builder(builder: (context) {
+            final picUrl = user?.profilePictureUrl;
+            return picUrl != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: CachedNetworkImage(
+                    imageUrl: '$serverBase$picUrl',
+                    cacheKey: picUrl,
+                    width: 36, height: 36, fit: BoxFit.cover,
+                    placeholder: (_, __) => _logoIcon(isDark),
+                    errorWidget: (_, __, ___) => _logoIcon(isDark),
+                  ),
+                )
+              : _logoIcon(isDark);
+          }),
           const SizedBox(width: 12),
           Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
             Text('MediTrack', style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700)),

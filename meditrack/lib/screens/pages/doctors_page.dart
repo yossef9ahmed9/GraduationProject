@@ -230,7 +230,7 @@ class _DoctorCard extends StatelessWidget {
     return AppCard(
       padding: const EdgeInsets.all(14),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        AvatarWidget(initials: doctor.initials, size: 40, fontSize: 14),
+        AvatarWidget(initials: doctor.initials, size: 40, fontSize: 14, photoUrl: doctor.profilePictureUrl),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(doctor.name,
@@ -246,11 +246,6 @@ class _DoctorCard extends StatelessWidget {
                   color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
         ])),
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          if (doctor.isAvailable != null)
-            BadgeWidget(
-              label: doctor.isAvailable! ? 'Available' : 'Busy',
-              type: doctor.isAvailable! ? BadgeType.green : BadgeType.amber,
-            ),
           const SizedBox(height: 8),
           Row(mainAxisSize: MainAxisSize.min, children: [
             // Chat button — always visible
@@ -269,7 +264,7 @@ class _DoctorCard extends StatelessWidget {
             if (canBook) ...[
               const SizedBox(width: 6),
               OutlinedButton.icon(
-                onPressed: doctor.isAvailable == false ? null : onBook,
+                onPressed: onBook,
                 icon: const Icon(Icons.calendar_month_outlined, size: 14),
                 label: Text('Book', style: GoogleFonts.dmSans(fontSize: 12)),
                 style: OutlinedButton.styleFrom(

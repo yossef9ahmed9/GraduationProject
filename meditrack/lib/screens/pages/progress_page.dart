@@ -594,9 +594,51 @@ class _FieldPoint {
 // ════════════════════════════════════════════════════════════════
 // Tab 3 — Summary
 // ════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// في progress_page.dart — استبدل class _SummaryTab بالكود ده
+// ═══════════════════════════════════════════════════════════════
+
 class _SummaryTab extends StatelessWidget {
   final PatientProgressResponse data;
   const _SummaryTab({required this.data});
+
+  // Parse result string → { name: {value, status} }
+  static List<Map<String, dynamic>> _parseTestFields(String result) {
+    // Try JSON first
+    try {
+      final decoded = jsonDecode(result);
+      if (decoded is Map) {
+        final list = decoded['Tests'] ?? decoded['tests'];
+        if (list is List) {
+          return list
+              .where((t) => (t as Map)['status'] != 'UnreadableValue')
+              .map((t) => {
+            'name':   (t['Name'] ?? t['name'] ?? '').toString(),
+            'value':  (t['Value'] ?? t['value'] ?? 0).toString(),
+            'status': (t['Status'] ?? t['status'] ?? 'Normal').toString(),
+          })
+              .where((t) => (t['name'] as String).isNotEmpty)
+              .toList();
+        }
+      }
+    } catch (_) {}
+
+    // Pipe-separated: "Hemoglobin: 13.5 (Low) | WBC: 6.2 | ..."
+    final parts = result.split('|').map((s) => s.trim()).where((s) => s.isNotEmpty);
+    return parts.map((part) {
+      final idx = part.indexOf(':');
+      if (idx < 0) return <String, dynamic>{};
+      final name   = part.substring(0, idx).trim();
+      final rest   = part.substring(idx + 1).trim();
+      final status = rest.toLowerCase().contains('high') ? 'High'
+          : rest.toLowerCase().contains('low') ? 'Low'
+          : 'Normal';
+      final value = rest
+          .replaceAll(RegExp(r'\([^)]*\)'), '')
+          .trim();
+      return {'name': name, 'value': value, 'status': status};
+    }).where((m) => (m['name'] as String? ?? '').isNotEmpty).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -605,12 +647,15 @@ class _SummaryTab extends StatelessWidget {
     final t = data.tests;
 
     if (v.isEmpty && t.isEmpty) {
-      return const EmptyState(
-          message: 'No data yet', icon: Icons.show_chart_rounded);
+      return const EmptyState(message: 'No data yet', icon: Icons.show_chart_rounded);
     }
 
     final hrValues = v.map((p) => p.heartRate.toDouble()).toList();
-    final o2Values = v.map((p) => p.oxygenSaturation).where((x) => x > 0).toList();
+    final o2Values = v
+        .map((p) => p.oxygenSaturation)
+        .where((x) => x != null && x > 0)
+        .map((x) => x!)
+        .toList();
     final emergencies = v.where((p) => p.isEmergency).length;
 
     return SingleChildScrollView(
@@ -620,15 +665,16 @@ class _SummaryTab extends StatelessWidget {
             style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 16),
 
+        // ── Vitals summary ────────────────────────────────────
         if (v.isNotEmpty) ...[
-          _SectionTitle('Vital Signs — ${v.length} readings', isDark),
+          _sectionTitle('Vital Signs — ${v.length} readings', isDark),
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: _SummaryCard(
               label: 'Heart Rate',
               icon:  Icons.favorite_rounded,
               color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
-              rows:  hrValues.isEmpty ? [] : [
+              rows: hrValues.isEmpty ? [] : [
                 ('Avg', '${(hrValues.reduce((a, b) => a + b) / hrValues.length).toStringAsFixed(1)} bpm'),
                 ('Min', '${hrValues.reduce((a, b) => a < b ? a : b).toStringAsFixed(0)} bpm'),
                 ('Max', '${hrValues.reduce((a, b) => a > b ? a : b).toStringAsFixed(0)} bpm'),
@@ -639,7 +685,7 @@ class _SummaryTab extends StatelessWidget {
               label: 'SpO₂',
               icon:  Icons.air_rounded,
               color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt,
-              rows:  o2Values.isEmpty ? [] : [
+              rows: o2Values.isEmpty ? [] : [
                 ('Avg', '${(o2Values.reduce((a, b) => a + b) / o2Values.length).toStringAsFixed(1)}%'),
                 ('Min', '${o2Values.reduce((a, b) => a < b ? a : b).toStringAsFixed(1)}%'),
                 ('Max', '${o2Values.reduce((a, b) => a > b ? a : b).toStringAsFixed(1)}%'),
@@ -647,57 +693,105 @@ class _SummaryTab extends StatelessWidget {
             )),
           ]),
           if (emergencies > 0) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(children: [
-                Icon(Icons.warning_amber_rounded, size: 18,
-                    color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt),
-                const SizedBox(width: 8),
-                Text('$emergencies emergency reading${emergencies != 1 ? 's' : ''} recorded',
-                    style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
-                        color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)),
-              ]),
-            ),
+            const SizedBox(height: 10),
+            EmergencyBanner(text: '$emergencies emergency event${emergencies > 1 ? 's' : ''} recorded'),
           ],
           const SizedBox(height: 20),
         ],
 
+        // ── Tests summary ─────────────────────────────────────
         if (t.isNotEmpty) ...[
-          _SectionTitle('Tests — ${t.length} result${t.length != 1 ? 's' : ''}', isDark),
+          _sectionTitle('Lab Tests — ${t.length} result${t.length != 1 ? 's' : ''}', isDark),
           const SizedBox(height: 10),
-          ...t.map((test) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: AppCard(
-              padding: const EdgeInsets.all(12),
-              child: Row(children: [
-                Expanded(child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(test.name,
-                      style: GoogleFonts.dmSans(
-                          fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text(test.labName,
-                      style: GoogleFonts.dmSans(fontSize: 11,
-                          color: isDark
-                              ? AppColors.darkTextSecondary
-                              : AppColors.textSecondary)),
-                ])),
-                Text('${test.date.day}/${test.date.month}/${test.date.year}',
-                    style: GoogleFonts.dmSans(fontSize: 11,
-                        color: isDark
-                            ? AppColors.darkTextTertiary
-                            : AppColors.textTertiary)),
+          ...t.map((test) {
+            final fields = _parseTestFields(test.result);
+            final date   = '${test.date.day}/${test.date.month}/${test.date.year}';
+            final hasAlerts = fields.any((f) =>
+            f['status'] == 'High' || f['status'] == 'Low');
+
+            return AppCard(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                // Header
+                Row(children: [
+                  Expanded(child: Text(test.name,
+                      style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700))),
+                  if (hasAlerts)
+                    BadgeWidget(label: 'Has Alerts', type: BadgeType.red)
+                  else
+                    BadgeWidget(label: 'Normal', type: BadgeType.green),
+                ]),
+                const SizedBox(height: 4),
+                Text('${test.labName} · $date',
+                    style: GoogleFonts.dmSans(fontSize: 12,
+                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+                const SizedBox(height: 10),
+
+                // Fields as chips
+                if (fields.isNotEmpty)
+                  Wrap(spacing: 6, runSpacing: 6, children: fields.map((f) {
+                    final status  = f['status'] as String;
+                    final isHigh  = status == 'High';
+                    final isLow   = status == 'Low';
+                    final isAlert = isHigh || isLow;
+
+                    Color bg, fg;
+                    if (isHigh) {
+                      bg = isDark ? AppColors.darkBadgeRedBg  : AppColors.badgeRedBg;
+                      fg = isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt;
+                    } else if (isLow) {
+                      bg = isDark ? AppColors.darkBadgeAmberBg  : AppColors.badgeAmberBg;
+                      fg = isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt;
+                    } else {
+                      bg = isDark ? AppColors.darkBadgeGreenBg  : AppColors.badgeGreenBg;
+                      fg = isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt;
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: fg.withValues(alpha: 0.3))),
+                      child: RichText(text: TextSpan(children: [
+                        TextSpan(
+                          text: '${f['name']}: ',
+                          style: GoogleFonts.dmSans(fontSize: 11,
+                              color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+                        ),
+                        TextSpan(
+                          text: f['value'] as String,
+                          style: GoogleFonts.dmMono(fontSize: 12,
+                              fontWeight: FontWeight.w600, color: fg),
+                        ),
+                        if (isAlert)
+                          TextSpan(
+                            text: ' ↑' * (isHigh ? 1 : 0) + ' ↓' * (isLow ? 1 : 0),
+                            style: GoogleFonts.dmSans(fontSize: 11, color: fg),
+                          ),
+                      ])),
+                    );
+                  }).toList())
+                else
+                  Text(test.result,
+                      style: GoogleFonts.dmSans(fontSize: 12,
+                          color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
               ]),
-            ),
-          )),
+            );
+          }),
         ],
       ]),
     );
   }
+
+  Widget _sectionTitle(String text, bool isDark) => Text(
+    text,
+    style: GoogleFonts.dmSans(
+      fontSize: 13, fontWeight: FontWeight.w700,
+      color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
+      letterSpacing: 0.05,
+    ),
+  );
 }
 
 class _SectionTitle extends StatelessWidget {

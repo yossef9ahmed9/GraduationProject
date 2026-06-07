@@ -13,6 +13,9 @@ import 'package:meditrack/models/models.dart';
 const String _base = 'http://192.168.1.6:5098/api';
 // const String _base = 'http://localhost:5000/api'; // iOS simulator / web
 
+/// The root server URL (no /api suffix). Used for building static asset URLs.
+String get serverBase => _base.replaceAll('/api', '');
+
 class ApiService {
   static const Duration _requestTimeout = Duration(seconds: 15);
 
@@ -323,11 +326,6 @@ class ApiService {
   /// PUT /api/doctors/{id}
   Future<ApiResult<bool>> updateDoctor(int id, Map<String, dynamic> body) =>
       _put('/doctors/$id', body);
-
-  /// PUT /api/doctors/{id}/availability
-  Future<ApiResult<bool>> updateDoctorAvailability(
-          int id, bool isAvailable) =>
-      _put('/doctors/$id/availability', {'isAvailable': isAvailable});
 
   /// DELETE /api/doctors/{id}
   Future<ApiResult<bool>> deleteDoctor(int id) =>
@@ -969,6 +967,30 @@ class ApiService {
     } catch (e) { return ApiResult.failure(e.toString(), null); }
   }
 
+  Future<ApiResult<bool>> changePassword(String currentPassword, String newPassword) async {
+    try {
+      final res = await http.put(Uri.parse('$_base/auth/change-password'),
+          headers: _headers,
+          body: jsonEncode({'currentPassword': currentPassword, 'newPassword': newPassword}))
+          .timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) { return ApiResult.failure(e.toString(), null); }
+  }
+
+  Future<ApiResult<bool>> updateName(String newName) async {
+    try {
+      final res = await http.put(Uri.parse('$_base/auth/update-name'),
+          headers: _headers,
+          body: jsonEncode({'newName': newName}))
+          .timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) { return ApiResult.failure(e.toString(), null); }
+  }
+
   // ── Dispatch requests ─────────────────────────────────────────
   Future<ApiResult<List<dynamic>>> getMyActiveDispatches() =>
       _get('/dispatch-requests/my', (j) => j as List);
@@ -1009,6 +1031,34 @@ class ApiService {
 
   Future<ApiResult<List<dynamic>>> searchPatients(String query) =>
       _get('/relative-requests/search-patients?q=${Uri.encodeComponent(query)}', (j) => j as List);
+
+  // ── Profile picture ───────────────────────────────────────────
+  /// PUT /api/auth/profile-picture — multipart upload, returns the URL string
+  Future<ApiResult<String>> uploadProfilePicture(List<int> bytes, String fileName) async {
+    try {
+      final uri = Uri.parse('$_base/auth/profile-picture');
+      final request = http.MultipartRequest('PUT', uri);
+      if (_token != null) {
+        request.headers['Authorization'] = 'Bearer $_token';
+      }
+      final mimeType = lookupMimeType(fileName, headerBytes: bytes) ?? 'image/jpeg';
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: fileName,
+        contentType: MediaType.parse(mimeType),
+      ));
+      final streamed = await request.send().timeout(const Duration(seconds: 30));
+      final res = await http.Response.fromStream(streamed);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final j = jsonDecode(res.body);
+        return ApiResult.success(j['url'] as String? ?? '', res.statusCode);
+      }
+      return ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
 
 }
 

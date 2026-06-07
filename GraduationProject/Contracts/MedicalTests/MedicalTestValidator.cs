@@ -1,3 +1,5 @@
+using FluentValidation;
+
 namespace GraduationProject.Contracts.MedicalTests
 {
     public class MedicalTestValidator : AbstractValidator<MedicalTestRequest>
@@ -10,7 +12,7 @@ namespace GraduationProject.Contracts.MedicalTests
 
             RuleFor(x => x.Result)
                 .NotEmpty().WithMessage("Test result is required.")
-                .MaximumLength(200).WithMessage("Result cannot exceed 200 characters.");
+                .MaximumLength(4000).WithMessage("Result cannot exceed 4000 characters.");
 
             RuleFor(x => x.PatientId)
                 .GreaterThan(0).WithMessage("A valid PatientId is required.");

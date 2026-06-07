@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -18,9 +19,27 @@ class LabsPage extends StatefulWidget {
 class _LabsPageState extends State<LabsPage> {
   final _searchCtrl = TextEditingController();
   String _query = '';
+  Timer? _autoRefresh;
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) {
+        final app  = context.read<AppProvider>();
+        final auth = context.read<AuthProvider>();
+        Future.wait([app.refreshLabs(), app.refreshLabAppointments(),
+          app.refreshTests()]);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoRefresh?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   List<LabResponse> _filtered(List<LabResponse> all) {
     final q = _query.trim().toLowerCase();
@@ -52,7 +71,9 @@ class _LabsPageState extends State<LabsPage> {
 
     return RefreshIndicator(
       onRefresh: () => app.refreshLabs(),
-      child: CustomScrollView(
+      child: Stack(
+        children: [
+          CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           // Search
@@ -114,6 +135,22 @@ class _LabsPageState extends State<LabsPage> {
                 ),
               ),
             ),
+        ],
+      ),
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton.small(
+              onPressed: () {
+                final app  = context.read<AppProvider>();
+                final auth = context.read<AuthProvider>();
+                Future.wait([app.refreshLabs(), app.refreshLabAppointments(),
+                  app.refreshTests()]);
+              },
+              tooltip: 'Refresh',
+              child: const Icon(Icons.refresh_rounded),
+            ),
+          ),
         ],
       ),
     );

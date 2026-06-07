@@ -6,26 +6,57 @@ namespace GraduationProject.Services
     {
         private readonly AppDbContext _context = context;
 
-        public async Task<PagedResponse<LabResponse>> GetAllAsync(int pageNumber = 1, int pageSize = 10, CancellationToken cancellationToken = default)
+        private async Task<Dictionary<string, string?>> GetPicMapAsync(
+            IEnumerable<string> emails, CancellationToken ct) =>
+            await _context.Users
+                .AsNoTracking()
+                .Where(u => emails.Contains(u.Email!))
+                .Select(u => new { u.Email, u.ProfilePictureUrl })
+                .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, ct);
+
+        public async Task<PagedResponse<LabResponse>> GetAllAsync(
+            int pageNumber = 1, int pageSize = 10,
+            CancellationToken cancellationToken = default)
         {
-            return await _context.Labs
+            var totalCount = await _context.Labs.CountAsync(cancellationToken);
+
+            var labs = await _context.Labs
                 .AsNoTracking()
                 .OrderBy(l => l.Id)
-                .ProjectToType<LabResponse>()
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+
+            var picMap = await GetPicMapAsync(labs.Select(l => l.Email), cancellationToken);
+
+            var items = labs.Select(l => l.Adapt<LabResponse>() with
+            {
+                ProfilePictureUrl = picMap.GetValueOrDefault(l.Email)
+            }).ToList();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            return new PagedResponse<LabResponse>(
+                items, pageNumber, pageSize, totalCount,
+                totalPages, pageNumber > 1, pageNumber < totalPages);
         }
 
-        public async Task<Result<LabResponse>> GetAsync(int id, CancellationToken cancellationToken = default)
+        public async Task<Result<LabResponse>> GetAsync(int id,
+            CancellationToken cancellationToken = default)
         {
             var lab = await _context.Labs
                 .AsNoTracking()
                 .Where(l => l.Id == id)
-                .ProjectToType<LabResponse>()
                 .FirstOrDefaultAsync(cancellationToken);
 
-            return lab is null
-                ? Result.Failure<LabResponse>(LabErrors.LabNotFound)
-                : Result.Success(lab);
+            if (lab is null)
+                return Result.Failure<LabResponse>(LabErrors.LabNotFound);
+
+            var picMap = await GetPicMapAsync([lab.Email], cancellationToken);
+            var response = lab.Adapt<LabResponse>() with
+            {
+                ProfilePictureUrl = picMap.GetValueOrDefault(lab.Email)
+            };
+            return Result.Success(response);
         }
 
         public async Task<Result<LabResponse>> AddAsync(LabRequest request, CancellationToken cancellationToken = default)

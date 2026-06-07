@@ -21,4 +21,19 @@ public static class UserErrors
     // NEW: error for when the reset token is invalid or expired
     public static readonly Error InvalidResetToken =
         new("User.InvalidResetToken", "Invalid or expired reset token", StatusCodes.Status400BadRequest);
+
+    public static readonly Error IncorrectCurrentPassword =
+        new("User.IncorrectCurrentPassword", "Current password is incorrect.", StatusCodes.Status400BadRequest);
+
+    public static readonly Error PasswordChangeFailed =
+        new("User.PasswordChangeFailed", "Failed to change password.", StatusCodes.Status400BadRequest);
+
+    public static readonly Error NameUpdateFailed =
+        new("User.NameUpdateFailed", "Failed to update display name.", StatusCodes.Status400BadRequest);
+
+    public static readonly Error ProfilePictureUploadFailed =
+        new("User.ProfilePictureUploadFailed", "Failed to upload profile picture.", StatusCodes.Status400BadRequest);
+
+    public static readonly Error InvalidFileType =
+        new("User.InvalidFileType", "Only jpg and png files are allowed.", StatusCodes.Status400BadRequest);
 }

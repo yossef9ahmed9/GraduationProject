@@ -5,6 +5,9 @@ namespace GraduationProject.Contracts.Labs
         string Name,
         string Location,
         string Phone,
-        string Email
+        string Email,
+        double? Latitude  = null,
+        double? Longitude = null,
+        string? ProfilePictureUrl = null
     );
 }

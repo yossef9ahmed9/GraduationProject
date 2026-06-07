@@ -1,16 +1,17 @@
 ﻿namespace GraduationProject.Contracts.Authentication
 {
-    // NEW: dedicated request model for doctor registration only
-    // replaces the old giant RegisterRequest for the doctor role
     public record DoctorRegisterRequest
     (
         string FullName,
         string Email,
         string Password,
         string ConfirmPassword,
-
-        // doctor-specific fields — all required, no nullables
         string Phone,
-        string Specialization
+        string Specialization,
+        // Optional clinic info — can be added at registration or later via profile
+        string? ClinicName     = null,
+        string? ClinicAddress  = null,
+        double? ClinicLatitude  = null,
+        double? ClinicLongitude = null
     );
 }

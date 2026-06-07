@@ -1,31 +1,66 @@
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+
+// Base URL for serving backend-hosted images
+const String _avatarBase = 'http://192.168.1.6:5098';
 
 // ── Avatar ────────────────────────────────────────────────────
 class AvatarWidget extends StatelessWidget {
   final String initials;
   final double size;
   final double fontSize;
-  const AvatarWidget({super.key, required this.initials, this.size = 32, this.fontSize = 11});
+  /// Optional profile picture URL (relative path from the backend).
+  /// If provided and non-empty, shows the photo instead of initials.
+  final String? photoUrl;
+
+  const AvatarWidget({
+    super.key,
+    required this.initials,
+    this.size = 32,
+    this.fontSize = 11,
+    this.photoUrl,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: size, height: size,
-      decoration: BoxDecoration(
-        gradient: isDark
-            ? const LinearGradient(colors: [Color(0x4D2563EB), Color(0x661E3A8A)], begin: Alignment.topLeft, end: Alignment.bottomRight)
-            : const LinearGradient(colors: [Color(0xFFDBEAFE), Color(0xFFBFDBFE)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-        shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 4)],
-      ),
-      child: Center(child: Text(initials, style: GoogleFonts.dmSans(fontSize: fontSize, fontWeight: FontWeight.w700,
-          color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
-    );
+
+    final fullUrl = (photoUrl != null && photoUrl!.isNotEmpty)
+        ? '$_avatarBase$photoUrl'
+        : null;
+
+    if (fullUrl != null) {
+      return ClipOval(
+        child: CachedNetworkImage(
+          imageUrl: fullUrl,
+          cacheKey: photoUrl, // changes on every new upload (new filename = new key)
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => _initialsCircle(isDark),
+          errorWidget: (_, __, ___) => _initialsCircle(isDark),
+        ),
+      );
+    }
+
+    return _initialsCircle(isDark);
   }
+
+  Widget _initialsCircle(bool isDark) => Container(
+    width: size, height: size,
+    decoration: BoxDecoration(
+      gradient: isDark
+          ? const LinearGradient(colors: [Color(0x4D2563EB), Color(0x661E3A8A)], begin: Alignment.topLeft, end: Alignment.bottomRight)
+          : const LinearGradient(colors: [Color(0xFFDBEAFE), Color(0xFFBFDBFE)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+      shape: BoxShape.circle,
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 4)],
+    ),
+    child: Center(child: Text(initials, style: GoogleFonts.dmSans(fontSize: fontSize, fontWeight: FontWeight.w700,
+        color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
+  );
 }
 
 // ── Badge ─────────────────────────────────────────────────────

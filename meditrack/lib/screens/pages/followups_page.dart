@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +19,21 @@ class _FollowUpsPageState extends State<FollowUpsPage> {
   bool _busy = false;
   String? _msg;
   bool _isError = false;
+  Timer? _autoRefresh;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _refresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoRefresh?.cancel();
+    super.dispose();
+  }
 
   Future<void> _refresh() async {
     final app  = context.read<AppProvider>();
@@ -93,7 +109,9 @@ class _FollowUpsPageState extends State<FollowUpsPage> {
 
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: CustomScrollView(
+      child: Stack(
+        children: [
+          CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverToBoxAdapter(
@@ -158,6 +176,17 @@ class _FollowUpsPageState extends State<FollowUpsPage> {
                 ),
               ),
             ),
+        ],
+      ),
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton.small(
+              onPressed: _refresh,
+              tooltip: 'Refresh',
+              child: const Icon(Icons.refresh_rounded),
+            ),
+          ),
         ],
       ),
     );

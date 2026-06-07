@@ -266,6 +266,20 @@ class AppProvider extends ChangeNotifier {
     catch (_) { return null; }
   }
 
+  DoctorResponse? doctorByEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    try { return doctors.firstWhere((d) => d.email.trim().toLowerCase() == normalized); }
+    catch (_) { return null; }
+  }
+
+  LabResponse? labByEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    try { return labs.firstWhere((l) => l.email.trim().toLowerCase() == normalized); }
+    catch (_) { return null; }
+  }
+
   List<VitalSignsResponse> vitalsForPatient(int patientId) =>
       vitals.where((v) => v.patientId == patientId).toList()
         ..sort((a, b) =>

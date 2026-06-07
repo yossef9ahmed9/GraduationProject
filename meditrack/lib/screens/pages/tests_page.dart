@@ -26,12 +26,14 @@ class _TestsPageState extends State<TestsPage> {
   int? _ocrPatientId;
   int? _ocrLabId;
   int? _ocrAppointmentId;
+  String _ocrTestType = 'CBC'; // auto-detected by backend
   final Map<String, TextEditingController> _manualCtrls = {};
 
   // Holds the latest OCR scan in memory only — never persisted to DB until
   // the user explicitly presses "Save". Cleared on discard or app restart.
   List<Map> _pendingOcrTests = [];
   String   _pendingFileName  = '';
+  String   _pendingTestType  = 'CBC';
 
   @override
   void dispose() {
@@ -74,7 +76,23 @@ class _TestsPageState extends State<TestsPage> {
     });
   }
 
-  // ── OCR core ──────────────────────────────────────────────────
+  Future<void> _fillForm(LabAppointmentResponse appointment) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _LabFormSheet(
+        appointment: appointment,
+        onSuccess: () async {
+          await _refresh();
+          if (mounted) setState(() {
+            _message = 'Results saved and sent to patient.';
+            _isError = false;
+          });
+        },
+      ),
+    );
+  }
   // Step 1 of 2: scan the image for a PREVIEW only.
   // We deliberately omit patientId/labId from the OCR request so the backend
   // performs OCR + analysis but does NOT save anything to the database.
@@ -102,7 +120,7 @@ class _TestsPageState extends State<TestsPage> {
     setState(() {
       _busy = true; _message = null;
       _ocrResult = null; _manualCtrls.clear();
-      _pendingOcrTests = []; _pendingFileName = file.name;
+      _pendingOcrTests = []; _pendingFileName = file.name; _pendingTestType = 'CBC';
     });
 
     // Send WITHOUT patientId/labId — backend returns analysis but saves nothing
@@ -119,6 +137,7 @@ class _TestsPageState extends State<TestsPage> {
 
     final scan  = res.data!;
     final tests = (scan.analysis['tests'] as List? ?? []);
+    final detectedType = scan.testType; // e.g. "CBC", "Lipid Panel", etc.
 
     // Identify fields the OCR could not read clearly
     final unreadable = tests
@@ -126,22 +145,19 @@ class _TestsPageState extends State<TestsPage> {
         .map((t) => (t as Map)['name'] as String)
         .toList();
 
-    // Fallback: if backend returned no test entries at all, prompt all fields
-    const _allCbcFields = [
-      'Hemoglobin','Hematocrit','RBCs Count','MCV','MCH','MCHC',
-      'RDW-CV','Platelets','WBC','Neutrophils','Lymphocytes',
-      'Monocytes','Eosinophils','Basophils',
-    ];
+    // Fallback: all known fields for the detected test type
+    final allFieldsForType = kTestFields[detectedType] ?? kTestFields['CBC']!;
 
     if (!scan.isValidScan) {
-      // Completely unreadable — show manual entry for unrecognised fields only
-      final fieldsToPrompt = unreadable.isNotEmpty ? unreadable : _allCbcFields;
+      // Completely unreadable — show manual entry for all fields of this type
+      final fieldsToPrompt = unreadable.isNotEmpty ? unreadable : allFieldsForType;
       setState(() {
         _busy = false; _isError = false;
-        _message = fieldsToPrompt.length < _allCbcFields.length
+        _message = fieldsToPrompt.length < allFieldsForType.length
             ? 'Some values could not be read. Please enter them manually.'
             : 'Could not read values from image. Please enter them manually.';
         _ocrResult = scan;
+        _ocrTestType = detectedType;
         _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
         for (final f in fieldsToPrompt) _manualCtrls[f] = TextEditingController();
       });
@@ -149,24 +165,26 @@ class _TestsPageState extends State<TestsPage> {
     }
 
     if (unreadable.isNotEmpty) {
-      // Partially unreadable — show manual entry only for unrecognised fields
+      // Partially unreadable — manual entry only for unrecognised fields
       setState(() {
         _busy = false; _isError = false;
         _message = 'Some values could not be read. Please enter them manually.';
         _ocrResult = scan;
+        _ocrTestType = detectedType;
         _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
         for (final f in unreadable) _manualCtrls[f] = TextEditingController();
       });
       return;
     }
 
-    // Fully readable — store in memory as a pending preview (NOT saved to DB yet)
+    // Fully readable — store as pending preview
     setState(() {
       _busy = false; _isError = false;
-      _message = 'Scan complete. Review below and press Save to keep it.';
+      _message = 'Scan complete ($detectedType). Review below and press Save to keep it.';
       _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
-      // Store tests in widget state only — temporary until user confirms save
       _pendingOcrTests = tests.whereType<Map>().toList();
+      _pendingFileName = file.name;
+      _pendingTestType = detectedType;
     });
   }
 
@@ -182,7 +200,7 @@ class _TestsPageState extends State<TestsPage> {
     setState(() { _busy = true; _message = null; });
 
     final res = await apiService.addMedicalTest(MedicalTestRequest(
-      name: 'CBC', result: resultStr,
+      name: _pendingTestType, result: resultStr,
       patientId: _ocrPatientId!, labId: _ocrLabId!,
     ));
     if (res.ok && _ocrAppointmentId != null) {
@@ -195,7 +213,7 @@ class _TestsPageState extends State<TestsPage> {
       _message = res.ok ? 'Results saved successfully.' : (res.error ?? 'Failed to save.');
       if (res.ok) {
         // Clear the pending preview after successful save
-        _pendingOcrTests = []; _pendingFileName = '';
+        _pendingOcrTests = []; _pendingFileName = ''; _pendingTestType = 'CBC';
         _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
       }
     });
@@ -204,7 +222,7 @@ class _TestsPageState extends State<TestsPage> {
   // Discard the pending preview without saving anything
   void _discardOcrResult() {
     setState(() {
-      _pendingOcrTests = []; _pendingFileName = '';
+      _pendingOcrTests = []; _pendingFileName = ''; _pendingTestType = 'CBC';
       _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
       _message = null;
     });
@@ -255,7 +273,7 @@ class _TestsPageState extends State<TestsPage> {
     final resultStr = allFields.entries.map((e) => '${e.key}: ${e.value}').join(' | ');
     setState(() { _busy = true; _message = null; });
     final res = await apiService.addMedicalTest(MedicalTestRequest(
-      name: 'CBC', result: resultStr,
+      name: _ocrTestType, result: resultStr,
       patientId: _ocrPatientId!, labId: _ocrLabId!,
     ));
     if (res.ok && _ocrAppointmentId != null) {
@@ -267,7 +285,7 @@ class _TestsPageState extends State<TestsPage> {
       _busy = false; _isError = !res.ok;
       _message = res.ok ? 'Results saved successfully.' : (res.error ?? 'Failed to save.');
       if (res.ok) {
-        _ocrResult = null; _manualCtrls.clear();
+        _ocrResult = null; _manualCtrls.clear(); _ocrTestType = 'CBC';
         _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
       }
     });
@@ -346,6 +364,7 @@ class _TestsPageState extends State<TestsPage> {
                   _OcrPreviewPanel(
                     tests: _pendingOcrTests,
                     fileName: _pendingFileName,
+                    testType: _pendingTestType,
                     onSave: _busy ? null : _saveOcrResult,
                     onDiscard: _busy ? null : _discardOcrResult,
                     busy: _busy,
@@ -419,6 +438,9 @@ class _TestsPageState extends State<TestsPage> {
                         (_, i) => _LabRequestCard(
                       appointment: visibleAppointments[i],
                       onScan: () => _scanOcr(visibleAppointments[i]),
+                      onFillForm: visibleAppointments[i].status != 'Completed' &&
+                          visibleAppointments[i].status != 'Cancelled'
+                          ? () => _fillForm(visibleAppointments[i]) : null,
                       onConfirm: visibleAppointments[i].status == 'Pending'
                           ? () => _updateStatus(visibleAppointments[i], 'Confirmed') : null,
                       onComplete: visibleAppointments[i].status != 'Completed' &&
@@ -462,6 +484,7 @@ class _TestsPageState extends State<TestsPage> {
 class _OcrPreviewPanel extends StatelessWidget {
   final List<Map> tests;
   final String    fileName;
+  final String    testType;
   final VoidCallback? onSave;
   final VoidCallback? onDiscard;
   final bool busy;
@@ -469,6 +492,7 @@ class _OcrPreviewPanel extends StatelessWidget {
   const _OcrPreviewPanel({
     required this.tests,
     required this.fileName,
+    required this.testType,
     required this.onSave,
     required this.onDiscard,
     required this.busy,
@@ -491,7 +515,7 @@ class _OcrPreviewPanel extends StatelessWidget {
               color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt),
           const SizedBox(width: 8),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Scan Preview — not saved yet',
+            Text('$testType — Scan Preview (not saved yet)',
                 style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
                     color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)),
             if (fileName.isNotEmpty)
@@ -727,10 +751,11 @@ class _AppointmentCard extends StatelessWidget {
 class _LabRequestCard extends StatelessWidget {
   final LabAppointmentResponse appointment;
   final VoidCallback? onScan;
+  final VoidCallback? onFillForm;
   final VoidCallback? onConfirm;
   final VoidCallback? onComplete;
   const _LabRequestCard({
-    required this.appointment, this.onScan, this.onConfirm, this.onComplete,
+    required this.appointment, this.onScan, this.onFillForm, this.onConfirm, this.onComplete,
   });
 
   @override
@@ -761,26 +786,26 @@ class _LabRequestCard extends StatelessWidget {
           Text(appointment.notes, style: GoogleFonts.dmSans(fontSize: 12,
               color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
         ],
-        if (onScan != null || onConfirm != null || onComplete != null) ...[
+        if (onScan != null || onFillForm != null || onConfirm != null || onComplete != null) ...[
           const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            if (onScan != null)
-              OutlinedButton.icon(
-                onPressed: onScan,
-                icon: const Icon(Icons.document_scanner_outlined, size: 16),
-                label: const Text('Scan report'),
-              ),
             if (onConfirm != null)
               OutlinedButton.icon(
                 onPressed: onConfirm,
                 icon: const Icon(Icons.check_outlined, size: 16),
                 label: const Text('Confirm'),
               ),
-            if (onComplete != null)
+            if (onFillForm != null)
               ElevatedButton.icon(
-                onPressed: onComplete,
+                onPressed: onFillForm,
                 icon: const Icon(Icons.assignment_turned_in_outlined, size: 16),
-                label: const Text('Enter results'),
+                label: const Text('Fill Test Results'),
+              ),
+            if (onScan != null)
+              OutlinedButton.icon(
+                onPressed: onScan,
+                icon: const Icon(Icons.document_scanner_outlined, size: 16),
+                label: const Text('Upload Result Image'),
               ),
           ]),
         ],
@@ -1017,6 +1042,224 @@ class _CompleteResultDialogState extends State<_CompleteResultDialog> {
           child: const Text('Save'),
         ),
       ],
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Lab Form Sheet — structured form per test type
+// ════════════════════════════════════════════════════════════════
+
+const Map<String, List<String>> kTestFields = {
+  'CBC': ['Hemoglobin', 'Hematocrit', 'RBCs Count', 'MCV', 'MCH', 'MCHC', 'RDW-CV', 'Platelets', 'WBC', 'Neutrophils', 'Lymphocytes', 'Monocytes', 'Eosinophils', 'Basophils'],
+  'Glucose': ['Fasting Glucose', 'Random Glucose', 'Fasting Insulin', 'HOMA-IR'],
+  'HbA1c': ['HbA1c %', 'Average Blood Glucose', 'eAG mg/dL'],
+  'Lipid Panel': ['Total Cholesterol', 'LDL Cholesterol', 'HDL Cholesterol', 'Triglycerides', 'VLDL', 'Non-HDL Cholesterol', 'LDL/HDL Ratio'],
+  'Kidney Function': ['Creatinine', 'BUN', 'BUN/Creatinine Ratio', 'eGFR', 'Uric Acid', 'Sodium', 'Potassium', 'Chloride', 'Bicarbonate'],
+  'Liver Function': ['ALT', 'AST', 'ALP', 'GGT', 'Total Bilirubin', 'Direct Bilirubin', 'Indirect Bilirubin', 'Total Protein', 'Albumin', 'Globulin', 'A/G Ratio'],
+  'Thyroid (TSH)': ['TSH', 'Free T4', 'Free T3', 'Total T4', 'Total T3', 'Anti-TPO', 'Anti-TG'],
+  'Vitamin D': ['25-OH Vitamin D', '1,25-OH Vitamin D', 'PTH'],
+  'Iron Studies': ['Serum Iron', 'TIBC', 'Transferrin Saturation %', 'Ferritin', 'Transferrin'],
+  'Urine Analysis': ['Color', 'Clarity', 'pH', 'Specific Gravity', 'Protein', 'Glucose', 'Ketones', 'Blood', 'Nitrite', 'Leukocyte Esterase', 'WBC/hpf', 'RBC/hpf', 'Bacteria', 'Casts'],
+};
+
+class _LabFormSheet extends StatefulWidget {
+  final LabAppointmentResponse appointment;
+  final VoidCallback onSuccess;
+  const _LabFormSheet({required this.appointment, required this.onSuccess});
+  @override
+  State<_LabFormSheet> createState() => _LabFormSheetState();
+}
+
+class _LabFormSheetState extends State<_LabFormSheet> {
+  // Map: testName → (fieldName → TextEditingController)
+  late final Map<String, Map<String, TextEditingController>> _ctrls;
+  // Track expanded sections
+  late final Map<String, bool> _expanded;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrls = {};
+    _expanded = {};
+    for (final testName in widget.appointment.testNames) {
+      final fields = kTestFields[testName] ?? [];
+      _ctrls[testName] = {
+        for (final f in fields) f: TextEditingController(),
+      };
+      _expanded[testName] = true; // expanded by default
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final map in _ctrls.values) {
+      for (final c in map.values) c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() => _submitting = true);
+
+    final results = <LabTestResultRequest>[];
+    for (final entry in _ctrls.entries) {
+      final testName = entry.key;
+      final fieldMap = entry.value;
+      // Build pipe-separated string — skip empty fields
+      final parts = fieldMap.entries
+          .where((e) => e.value.text.trim().isNotEmpty)
+          .map((e) => '${e.key}: ${e.value.text.trim()}')
+          .toList();
+      if (parts.isEmpty) {
+        results.add(LabTestResultRequest(name: testName, result: 'Pending'));
+      } else {
+        results.add(LabTestResultRequest(name: testName, result: parts.join(' | ')));
+      }
+    }
+
+    final res = await apiService.completeLabAppointment(
+      widget.appointment.id,
+      CompleteLabAppointmentRequest(results: results),
+    );
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (res.ok) {
+      widget.onSuccess();
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Results saved and sent to patient.')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res.error ?? 'Failed to save results.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final date   = DateTime.tryParse(widget.appointment.appointmentDate)?.toLocal();
+    final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '-';
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.9,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          // Handle
+          Center(child: Container(
+            width: 36, height: 4,
+            margin: const EdgeInsets.only(top: 10, bottom: 4),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          )),
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Icon(Icons.science_outlined, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Fill Lab Results',
+                    style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.w700))),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ]),
+              const SizedBox(height: 4),
+              Text(
+                '${widget.appointment.patientName.isNotEmpty ? widget.appointment.patientName : 'Patient #${widget.appointment.patientId}'} · ${widget.appointment.testNames.join(', ')} · $dateStr',
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+              ),
+            ]),
+          ),
+          Divider(height: 1, color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+          // Scrollable form
+          Expanded(
+            child: ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              children: [
+                for (final testName in widget.appointment.testNames) ...[
+                  // Section header with toggle
+                  InkWell(
+                    onTap: () => setState(() => _expanded[testName] = !(_expanded[testName] ?? true)),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(children: [
+                        const Icon(Icons.science_outlined, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(testName,
+                            style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700))),
+                        Icon((_expanded[testName] ?? true)
+                            ? Icons.expand_less : Icons.expand_more, size: 20),
+                      ]),
+                    ),
+                  ),
+                  if (_expanded[testName] ?? true) ...[
+                    if ((kTestFields[testName]?.isEmpty ?? true))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: TextField(
+                          controller: (_ctrls[testName]?['result'] ??= TextEditingController()),
+                          decoration: const InputDecoration(
+                              labelText: 'Result', hintText: 'Enter result'),
+                        ),
+                      )
+                    else
+                      ...?(_ctrls[testName]?.entries.map((e) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextField(
+                          controller: e.value,
+                          keyboardType: TextInputType.text,
+                          decoration: InputDecoration(
+                            labelText: e.key,
+                            hintText: 'Enter value',
+                            isDense: true,
+                          ),
+                        ),
+                      )).toList()),
+                  ],
+                  Divider(height: 1,
+                      color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+                  const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          ),
+          // Submit button
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20,
+                MediaQuery.of(context).viewInsets.bottom + 20),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _submitting ? null : _submit,
+                icon: _submitting
+                    ? const SizedBox(width: 16, height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text('Submit Results'),
+              ),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 }

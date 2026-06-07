@@ -110,7 +110,7 @@ class _BookFollowUpPageState extends State<BookFollowUpPage> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: _selectedDoc?.id == d.id ? (isDark ? AppColors.darkAccent : AppColors.accent) : (isDark ? AppColors.darkBorderColor : AppColors.borderColor))),
               child: Row(children: [
-                AvatarWidget(initials: d.initials, size: 38, fontSize: 13),
+                AvatarWidget(initials: d.initials, size: 38, fontSize: 13, photoUrl: d.profilePictureUrl),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(d.name, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600)),

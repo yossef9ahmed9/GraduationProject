@@ -38,6 +38,7 @@ class AppUser {
   final String role;
   final String token;
   final String refreshToken;
+  final String? profilePictureUrl;
 
   const AppUser({
     required this.id,
@@ -46,6 +47,7 @@ class AppUser {
     required this.role,
     required this.token,
     required this.refreshToken,
+    this.profilePictureUrl,
   });
 
   String get initials {
@@ -63,6 +65,7 @@ class AuthResponse {
   final String fullName;
   final String token;
   final String refreshToken;
+  final String? profilePictureUrl;
 
   const AuthResponse({
     required this.id,
@@ -70,14 +73,16 @@ class AuthResponse {
     required this.fullName,
     required this.token,
     required this.refreshToken,
+    this.profilePictureUrl,
   });
 
   factory AuthResponse.fromJson(Map<String, dynamic> j) => AuthResponse(
-    id:           j['id'] as String? ?? '',
-    email:        j['email'] as String? ?? '',
-    fullName:     j['fullName'] as String? ?? j['name'] as String? ?? '',
-    token:        j['token'] as String? ?? '',
-    refreshToken: j['refreshToken'] as String? ?? '',
+    id:                j['id'] as String? ?? '',
+    email:             j['email'] as String? ?? '',
+    fullName:          j['fullName'] as String? ?? j['name'] as String? ?? '',
+    token:             j['token'] as String? ?? '',
+    refreshToken:      j['refreshToken'] as String? ?? '',
+    profilePictureUrl: j['profilePictureUrl'] as String?,
   );
 }
 
@@ -140,11 +145,11 @@ class PatientResponse {
   final String address;
   final String medicalRecord;
   final String? birthDate;
-  // Fields added in latest backend update
   final String bloodType;
   final String? chronicDiseases;
   final String? allergies;
   final bool isInEmergency;
+  final String? profilePictureUrl;
 
   const PatientResponse({
     required this.id,
@@ -159,6 +164,7 @@ class PatientResponse {
     this.chronicDiseases,
     this.allergies,
     this.isInEmergency = false,
+    this.profilePictureUrl,
   });
 
   String get initials {
@@ -181,17 +187,23 @@ class PatientResponse {
     chronicDiseases:  j['chronicDiseases'] as String?,
     allergies:        j['allergies'] as String?,
     isInEmergency:    j['isInEmergency'] as bool? ?? false,
+    profilePictureUrl: j['profilePictureUrl'] as String?,
   );
 }
 
 // ── Doctor ────────────────────────────────────────────────────
 class DoctorResponse {
-  final int id;
+  final int    id;
   final String name;
   final String email;
   final String phone;
   final String specialization;
-  final bool? isAvailable;
+  final String? hospitalName;
+  final String? clinicName;
+  final String? clinicAddress;
+  final double? clinicLatitude;
+  final double? clinicLongitude;
+  final String? profilePictureUrl;
 
   const DoctorResponse({
     required this.id,
@@ -199,7 +211,12 @@ class DoctorResponse {
     required this.email,
     required this.phone,
     required this.specialization,
-    this.isAvailable,
+    this.hospitalName,
+    this.clinicName,
+    this.clinicAddress,
+    this.clinicLatitude,
+    this.clinicLongitude,
+    this.profilePictureUrl,
   });
 
   String get initials {
@@ -215,7 +232,12 @@ class DoctorResponse {
     email:          j['email'] as String? ?? '',
     phone:          j['phone'] as String? ?? '',
     specialization: j['specialization'] as String? ?? '',
-    isAvailable:    j['isAvailable'] as bool?,
+    hospitalName:   j['hospitalName'] as String?,
+    clinicName:     j['clinicName'] as String?,
+    clinicAddress:  j['clinicAddress'] as String?,
+    clinicLatitude:   (j['clinicLatitude']  as num?)?.toDouble(),
+    clinicLongitude:  (j['clinicLongitude'] as num?)?.toDouble(),
+    profilePictureUrl: j['profilePictureUrl'] as String?,
   );
 }
 
@@ -226,7 +248,10 @@ class LabResponse {
   final String name;
   final String location;
   final String phone;
-  final String email;   // ← جديد — مطلوب للـ Chat
+  final String email;
+  final double? latitude;
+  final double? longitude;
+  final String? profilePictureUrl;
 
   const LabResponse({
     required this.id,
@@ -234,14 +259,20 @@ class LabResponse {
     required this.location,
     required this.phone,
     required this.email,
+    this.latitude,
+    this.longitude,
+    this.profilePictureUrl,
   });
 
   factory LabResponse.fromJson(Map<String, dynamic> j) => LabResponse(
-    id:       j['id']       as int?    ?? 0,
-    name:     j['labName']  as String? ?? j['name']  as String? ?? '',
-    location: j['location'] as String? ?? '',
-    phone:    j['phone']    as String? ?? '',
-    email:    j['email']    as String? ?? '',
+    id:        j['id']       as int?    ?? 0,
+    name:      j['labName']  as String? ?? j['name']  as String? ?? '',
+    location:  j['location'] as String? ?? '',
+    phone:     j['phone']    as String? ?? '',
+    email:     j['email']    as String? ?? '',
+    latitude:  (j['latitude']  as num?)?.toDouble(),
+    longitude: (j['longitude'] as num?)?.toDouble(),
+    profilePictureUrl: j['profilePictureUrl'] as String?,
   );
 }
 
@@ -706,6 +737,9 @@ class OcrScanResponse {
   });
 
   bool get isValidScan => analysis['isValidScan'] as bool? ?? false;
+
+  /// The test type auto-detected by the backend (e.g. "CBC", "Lipid Panel")
+  String get testType => analysis['testType'] as String? ?? 'CBC';
 
   factory OcrScanResponse.fromJson(Map<String, dynamic> j) =>
       OcrScanResponse(
