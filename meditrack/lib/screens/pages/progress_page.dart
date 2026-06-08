@@ -87,7 +87,7 @@ class _ProgressPageState extends State<ProgressPage>
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Patient', isDense: true),
               items: selectablePatients.map((p) =>
-                  DropdownMenuItem(value: p.id, child: Text('${p.name} — #${p.id}'))).toList(),
+                  DropdownMenuItem(value: p.id, child: Text(p.name))).toList(),
               onChanged: (id) { if (id != null) _load(id); },
             ),
           ),
@@ -593,18 +593,21 @@ class _FieldPoint {
 
 // ════════════════════════════════════════════════════════════════
 // Tab 3 — Summary
+// Doctor sees each of their follow-up patients as an expandable
+// section. Relative sees each linked patient the same way.
+// Patient sees only their own summary.
 // ════════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════
-// في progress_page.dart — استبدل class _SummaryTab بالكود ده
-// ═══════════════════════════════════════════════════════════════
 
-class _SummaryTab extends StatelessWidget {
+class _SummaryTab extends StatefulWidget {
   final PatientProgressResponse data;
   const _SummaryTab({required this.data});
+  @override
+  State<_SummaryTab> createState() => _SummaryTabState();
+}
 
-  // Parse result string → { name: {value, status} }
+class _SummaryTabState extends State<_SummaryTab> {
+  // Parse result string → list of {name, value, status}
   static List<Map<String, dynamic>> _parseTestFields(String result) {
-    // Try JSON first
     try {
       final decoded = jsonDecode(result);
       if (decoded is Map) {
@@ -613,17 +616,15 @@ class _SummaryTab extends StatelessWidget {
           return list
               .where((t) => (t as Map)['status'] != 'UnreadableValue')
               .map((t) => {
-            'name':   (t['Name'] ?? t['name'] ?? '').toString(),
-            'value':  (t['Value'] ?? t['value'] ?? 0).toString(),
-            'status': (t['Status'] ?? t['status'] ?? 'Normal').toString(),
-          })
+                    'name':   (t['Name'] ?? t['name'] ?? '').toString(),
+                    'value':  (t['Value'] ?? t['value'] ?? 0).toString(),
+                    'status': (t['Status'] ?? t['status'] ?? 'Normal').toString(),
+                  })
               .where((t) => (t['name'] as String).isNotEmpty)
               .toList();
         }
       }
     } catch (_) {}
-
-    // Pipe-separated: "Hemoglobin: 13.5 (Low) | WBC: 6.2 | ..."
     final parts = result.split('|').map((s) => s.trim()).where((s) => s.isNotEmpty);
     return parts.map((part) {
       final idx = part.indexOf(':');
@@ -633,22 +634,181 @@ class _SummaryTab extends StatelessWidget {
       final status = rest.toLowerCase().contains('high') ? 'High'
           : rest.toLowerCase().contains('low') ? 'Low'
           : 'Normal';
-      final value = rest
-          .replaceAll(RegExp(r'\([^)]*\)'), '')
-          .trim();
+      final value  = rest.replaceAll(RegExp(r'\([^)]*\)'), '').trim();
       return {'name': name, 'value': value, 'status': status};
     }).where((m) => (m['name'] as String? ?? '').isNotEmpty).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final app    = context.watch<AppProvider>();
+    final auth   = context.watch<AuthProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final v = data.vitals;
-    final t = data.tests;
+    final role   = auth.role;
+    final v      = widget.data.vitals;
+    final t      = widget.data.tests;
 
     if (v.isEmpty && t.isEmpty) {
       return const EmptyState(message: 'No data yet', icon: Icons.show_chart_rounded);
     }
+
+    // Doctor / Relative — show each patient as an expandable tile
+    if (role == UserRole.doctor || role == UserRole.relative) {
+      final patients = role == UserRole.doctor
+          ? app.patients.where((p) =>
+              app.followUps.any((f) => f.patientId == p.id)).toList()
+          : app.patients;
+
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (patients.isEmpty)
+            const EmptyState(
+                message: 'No linked patients', icon: Icons.people_outline)
+          else
+            ...patients.map((patient) => _PatientSummaryTile(
+                  patient: patient,
+                  parseFields: _parseTestFields,
+                )),
+        ]),
+      );
+    }
+
+    // Patient / Admin — single patient view (original layout)
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: _SinglePatientSummary(
+        data: widget.data,
+        isDark: isDark,
+        parseFields: _parseTestFields,
+      ),
+    );
+  }
+}
+
+// ── Per-patient expandable tile (Doctor / Relative) ───────────
+
+class _PatientSummaryTile extends StatefulWidget {
+  final PatientResponse patient;
+  final List<Map<String, dynamic>> Function(String) parseFields;
+  const _PatientSummaryTile({required this.patient, required this.parseFields});
+  @override
+  State<_PatientSummaryTile> createState() => _PatientSummaryTileState();
+}
+
+class _PatientSummaryTileState extends State<_PatientSummaryTile> {
+  bool _expanded = false;
+  PatientProgressResponse? _progress;
+  bool _loading = false;
+  String? _error;
+
+  Future<void> _load() async {
+    if (_progress != null) return; // already loaded
+    setState(() { _loading = true; _error = null; });
+    final res = await apiService.getPatientProgress(widget.patient.id);
+    if (!mounted) return;
+    setState(() {
+      _loading  = false;
+      _progress = res.ok ? res.data : null;
+      _error    = res.ok ? null : (res.error ?? 'Failed to load');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p      = widget.patient;
+
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: Column(children: [
+        // Header row — always visible
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            setState(() => _expanded = !_expanded);
+            if (_expanded) _load();
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(children: [
+              AvatarWidget(
+                  initials: p.initials, size: 36, fontSize: 13,
+                  photoUrl: p.profilePictureUrl),
+              const SizedBox(width: 10),
+              Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(p.name,
+                    style: GoogleFonts.dmSans(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+                if (p.isInEmergency)
+                  BadgeWidget(label: 'EMERGENCY', type: BadgeType.red),
+              ])),
+              Icon(
+                _expanded
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                size: 20,
+                color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
+              ),
+            ]),
+          ),
+        ),
+
+        // Expanded content
+        if (_expanded) ...[
+          Divider(height: 1,
+              color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_error != null)
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: AlertWidget(message: _error!, isError: true),
+            )
+          else if (_progress != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+              child: _SinglePatientSummary(
+                data:        _progress!,
+                isDark:      isDark,
+                parseFields: widget.parseFields,
+                compact:     true,
+              ),
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.all(14),
+              child: EmptyState(message: 'No data', icon: Icons.show_chart_rounded),
+            ),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Single patient summary (shared by patient view + expanded tile) ──
+
+class _SinglePatientSummary extends StatelessWidget {
+  final PatientProgressResponse data;
+  final bool isDark;
+  final List<Map<String, dynamic>> Function(String) parseFields;
+  final bool compact;
+
+  const _SinglePatientSummary({
+    required this.data,
+    required this.isDark,
+    required this.parseFields,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final v = data.vitals;
+    final t = data.tests;
 
     final hrValues = v.map((p) => p.heartRate.toDouble()).toList();
     final o2Values = v
@@ -658,84 +818,80 @@ class _SummaryTab extends StatelessWidget {
         .toList();
     final emergencies = v.where((p) => p.isEmergency).length;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (!compact) ...[
         Text(data.patientName,
             style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 16),
+      ],
 
-        // ── Vitals summary ────────────────────────────────────
-        if (v.isNotEmpty) ...[
-          _sectionTitle('Vital Signs — ${v.length} readings', isDark),
+      // Vitals
+      if (v.isNotEmpty) ...[
+        _sectionTitle('Vital Signs — ${v.length} readings', isDark),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: _SummaryCard(
+            label: 'Heart Rate',
+            icon:  Icons.favorite_rounded,
+            color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
+            rows: hrValues.isEmpty ? [] : [
+              ('Avg', '${(hrValues.reduce((a, b) => a + b) / hrValues.length).toStringAsFixed(1)} bpm'),
+              ('Min', '${hrValues.reduce((a, b) => a < b ? a : b).toStringAsFixed(0)} bpm'),
+              ('Max', '${hrValues.reduce((a, b) => a > b ? a : b).toStringAsFixed(0)} bpm'),
+            ],
+          )),
+          const SizedBox(width: 12),
+          Expanded(child: _SummaryCard(
+            label: 'SpO₂',
+            icon:  Icons.air_rounded,
+            color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt,
+            rows: o2Values.isEmpty ? [] : [
+              ('Avg', '${(o2Values.reduce((a, b) => a + b) / o2Values.length).toStringAsFixed(1)}%'),
+              ('Min', '${o2Values.reduce((a, b) => a < b ? a : b).toStringAsFixed(1)}%'),
+              ('Max', '${o2Values.reduce((a, b) => a > b ? a : b).toStringAsFixed(1)}%'),
+            ],
+          )),
+        ]),
+        if (emergencies > 0) ...[
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: _SummaryCard(
-              label: 'Heart Rate',
-              icon:  Icons.favorite_rounded,
-              color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
-              rows: hrValues.isEmpty ? [] : [
-                ('Avg', '${(hrValues.reduce((a, b) => a + b) / hrValues.length).toStringAsFixed(1)} bpm'),
-                ('Min', '${hrValues.reduce((a, b) => a < b ? a : b).toStringAsFixed(0)} bpm'),
-                ('Max', '${hrValues.reduce((a, b) => a > b ? a : b).toStringAsFixed(0)} bpm'),
-              ],
-            )),
-            const SizedBox(width: 12),
-            Expanded(child: _SummaryCard(
-              label: 'SpO₂',
-              icon:  Icons.air_rounded,
-              color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt,
-              rows: o2Values.isEmpty ? [] : [
-                ('Avg', '${(o2Values.reduce((a, b) => a + b) / o2Values.length).toStringAsFixed(1)}%'),
-                ('Min', '${o2Values.reduce((a, b) => a < b ? a : b).toStringAsFixed(1)}%'),
-                ('Max', '${o2Values.reduce((a, b) => a > b ? a : b).toStringAsFixed(1)}%'),
-              ],
-            )),
-          ]),
-          if (emergencies > 0) ...[
-            const SizedBox(height: 10),
-            EmergencyBanner(text: '$emergencies emergency event${emergencies > 1 ? 's' : ''} recorded'),
-          ],
-          const SizedBox(height: 20),
+          EmergencyBanner(text: '$emergencies emergency event${emergencies > 1 ? 's' : ''} recorded'),
         ],
+        const SizedBox(height: 16),
+      ],
 
-        // ── Tests summary ─────────────────────────────────────
-        if (t.isNotEmpty) ...[
-          _sectionTitle('Lab Tests — ${t.length} result${t.length != 1 ? 's' : ''}', isDark),
-          const SizedBox(height: 10),
-          ...t.map((test) {
-            final fields = _parseTestFields(test.result);
-            final date   = '${test.date.day}/${test.date.month}/${test.date.year}';
-            final hasAlerts = fields.any((f) =>
-            f['status'] == 'High' || f['status'] == 'Low');
+      // Tests
+      if (t.isNotEmpty) ...[
+        _sectionTitle('Lab Tests — ${t.length} result${t.length != 1 ? 's' : ''}', isDark),
+        const SizedBox(height: 10),
+        ...t.map((test) {
+          final fields    = parseFields(test.result);
+          final date      = '${test.date.day}/${test.date.month}/${test.date.year}';
+          final hasAlerts = fields.any((f) => f['status'] == 'High' || f['status'] == 'Low');
 
-            return AppCard(
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: AppCard(
               padding: const EdgeInsets.all(14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                // Header
                 Row(children: [
                   Expanded(child: Text(test.name,
                       style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700))),
-                  if (hasAlerts)
-                    BadgeWidget(label: 'Has Alerts', type: BadgeType.red)
-                  else
-                    BadgeWidget(label: 'Normal', type: BadgeType.green),
+                  hasAlerts
+                      ? BadgeWidget(label: 'Has Alerts', type: BadgeType.red)
+                      : BadgeWidget(label: 'Normal', type: BadgeType.green),
                 ]),
                 const SizedBox(height: 4),
                 Text('${test.labName} · $date',
                     style: GoogleFonts.dmSans(fontSize: 12,
                         color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
                 const SizedBox(height: 10),
-
-                // Fields as chips
                 if (fields.isNotEmpty)
                   Wrap(spacing: 6, runSpacing: 6, children: fields.map((f) {
                     final status  = f['status'] as String;
                     final isHigh  = status == 'High';
                     final isLow   = status == 'Low';
                     final isAlert = isHigh || isLow;
-
-                    Color bg, fg;
+                    final Color bg, fg;
                     if (isHigh) {
                       bg = isDark ? AppColors.darkBadgeRedBg  : AppColors.badgeRedBg;
                       fg = isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt;
@@ -746,7 +902,6 @@ class _SummaryTab extends StatelessWidget {
                       bg = isDark ? AppColors.darkBadgeGreenBg  : AppColors.badgeGreenBg;
                       fg = isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt;
                     }
-
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
@@ -754,21 +909,15 @@ class _SummaryTab extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: fg.withValues(alpha: 0.3))),
                       child: RichText(text: TextSpan(children: [
-                        TextSpan(
-                          text: '${f['name']}: ',
-                          style: GoogleFonts.dmSans(fontSize: 11,
-                              color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
-                        ),
-                        TextSpan(
-                          text: f['value'] as String,
-                          style: GoogleFonts.dmMono(fontSize: 12,
-                              fontWeight: FontWeight.w600, color: fg),
-                        ),
+                        TextSpan(text: '${f['name']}: ',
+                            style: GoogleFonts.dmSans(fontSize: 11,
+                                color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+                        TextSpan(text: f['value'] as String,
+                            style: GoogleFonts.dmMono(fontSize: 12,
+                                fontWeight: FontWeight.w600, color: fg)),
                         if (isAlert)
-                          TextSpan(
-                            text: ' ↑' * (isHigh ? 1 : 0) + ' ↓' * (isLow ? 1 : 0),
-                            style: GoogleFonts.dmSans(fontSize: 11, color: fg),
-                          ),
+                          TextSpan(text: isHigh ? ' ↑' : ' ↓',
+                              style: GoogleFonts.dmSans(fontSize: 11, color: fg)),
                       ])),
                     );
                   }).toList())
@@ -777,32 +926,22 @@ class _SummaryTab extends StatelessWidget {
                       style: GoogleFonts.dmSans(fontSize: 12,
                           color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
               ]),
-            );
-          }),
-        ],
-      ]),
-    );
+            ),
+          );
+        }),
+      ],
+
+      if (v.isEmpty && t.isEmpty)
+        const EmptyState(message: 'No data yet', icon: Icons.show_chart_rounded),
+    ]);
   }
 
   Widget _sectionTitle(String text, bool isDark) => Text(
     text,
-    style: GoogleFonts.dmSans(
-      fontSize: 13, fontWeight: FontWeight.w700,
-      color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
-      letterSpacing: 0.05,
-    ),
+    style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
+        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
+        letterSpacing: 0.05),
   );
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  final bool   isDark;
-  const _SectionTitle(this.text, this.isDark);
-  @override
-  Widget build(BuildContext context) => Text(text,
-      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
-          color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
-          letterSpacing: 0.3));
 }
 
 class _SummaryCard extends StatelessWidget {

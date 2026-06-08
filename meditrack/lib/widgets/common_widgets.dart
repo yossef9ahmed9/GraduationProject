@@ -36,7 +36,7 @@ class AvatarWidget extends StatelessWidget {
       return ClipOval(
         child: CachedNetworkImage(
           imageUrl: fullUrl,
-          cacheKey: photoUrl, // changes on every new upload (new filename = new key)
+          cacheKey: fullUrl,
           width: size,
           height: size,
           fit: BoxFit.cover,

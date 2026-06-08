@@ -1,17 +1,15 @@
 namespace GraduationProject.Contracts.Authentication
 {
-    // FIXED: LicensePlate, DriverName, DriverPhone were nullable with empty-string
-    // fallbacks in AuthService, meaning every registered ambulance had no driver info.
-    // They are now required non-nullable strings.
+    // StationName removed — DriverName is the display name now.
+    // ServiceArea is optional (e.g. "Nasr City", "Shubra").
     public record AmbulanceRegisterRequest(
-        string Email,
-        string Password,
-        string ConfirmPassword,
-        string StationName,
-        string Phone,
-        string AvailabilityStatus,
-        string LicensePlate,
-        string DriverName,
-        string DriverPhone
+        string  Email,
+        string  Password,
+        string  ConfirmPassword,
+        string  Phone,
+        string  DriverName,
+        string  DriverPhone,
+        string  LicensePlate,
+        string? ServiceArea = null      // optional zone label
     );
 }

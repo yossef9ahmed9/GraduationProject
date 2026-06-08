@@ -138,9 +138,9 @@ namespace GraduationProject.Services
                     "Already approved.",
                     StatusCodes.Status409Conflict));
 
-            request.Status             = "Approved";
-            request.UpdatedAt          = DateTime.UtcNow;
-            request.Relative.PatientId = patient.Id;
+            request.Status    = "Approved";
+            request.UpdatedAt = DateTime.UtcNow;
+            // PatientId removed from Relative entity — relationship via PatientRequests
 
             await _context.SaveChangesAsync(cancellationToken);
             return Result.Success();

@@ -1,14 +1,15 @@
 namespace GraduationProject.Contracts.Ambulances
 {
+    // DriverName is the primary display name (shown in Fleet card and status bar)
     public record AmbulanceResponse(
         int       Id,
         string    Email,
-        string    StationName,
-        string    Phone,
-        string    AvailabilityStatus,
-        string    LicensePlate,
-        string    DriverName,
+        string    DriverName,          // ← primary display name
         string    DriverPhone,
+        string    LicensePlate,
+        string    Phone,               // ambulance unit phone
+        string    AvailabilityStatus,
+        string?   ServiceArea,         // optional zone label
         double?   Latitude,
         double?   Longitude,
         DateTime? LastLocationUpdate,
@@ -28,5 +29,11 @@ namespace GraduationProject.Contracts.Ambulances
 
     public record UpdateAmbulanceAvailabilityRequest(
         string AvailabilityStatus  // Available / Busy / NotAvailable
+    );
+
+    // Location update — sent from ambulance app periodically
+    public record UpdateAmbulanceLocationRequest(
+        double Latitude,
+        double Longitude
     );
 }

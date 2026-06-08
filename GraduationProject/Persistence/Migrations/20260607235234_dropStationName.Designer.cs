@@ -4,6 +4,7 @@ using GraduationProject.Presistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GraduationProject.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260607235234_dropStationName")]
+    partial class dropStationName
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -667,6 +670,9 @@ namespace GraduationProject.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<int?>("PatientId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Phone")
                         .IsRequired()
                         .HasMaxLength(11)
@@ -678,6 +684,8 @@ namespace GraduationProject.Persistence.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PatientId");
 
                     b.ToTable("Relatives");
                 });
@@ -1023,6 +1031,16 @@ namespace GraduationProject.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("GraduationProject.Entities.Relative", b =>
+                {
+                    b.HasOne("GraduationProject.Entities.Patient", "Patient")
+                        .WithMany("Relatives")
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Patient");
+                });
+
             modelBuilder.Entity("GraduationProject.Entities.RelativePatientRequest", b =>
                 {
                     b.HasOne("GraduationProject.Entities.Patient", "Patient")
@@ -1150,6 +1168,8 @@ namespace GraduationProject.Persistence.Migrations
                     b.Navigation("FollowUps");
 
                     b.Navigation("MedicalTests");
+
+                    b.Navigation("Relatives");
 
                     b.Navigation("Sensors");
 

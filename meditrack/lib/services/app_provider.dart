@@ -55,7 +55,9 @@ class AppProvider extends ChangeNotifier {
         followUpsCall = apiService.getAllFollowUps();
       }
 
-      final emergencyDataCall = role == UserRole.ambulance
+      final emergencyDataCall = (role == UserRole.ambulance ||
+              role == UserRole.doctor  ||
+              role == UserRole.relative)
           ? apiService.getAllDispatches()
           : Future.value(ApiResult.success(<EmergencyDispatchResponse>[], 200));
 
@@ -240,12 +242,12 @@ class AppProvider extends ChangeNotifier {
           return AmbulanceResponse(
             id: a.id,
             email: a.email,
-            stationName: a.stationName,
-            phone: a.phone,
-            availabilityStatus: status,
-            licensePlate: a.licensePlate,
             driverName: a.driverName,
             driverPhone: a.driverPhone,
+            licensePlate: a.licensePlate,
+            phone: a.phone,
+            availabilityStatus: status,
+            serviceArea: a.serviceArea,
             latitude: a.latitude,
             longitude: a.longitude,
             lastLocationUpdate: a.lastLocationUpdate,

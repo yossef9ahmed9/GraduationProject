@@ -119,7 +119,7 @@ namespace GraduationProject.Controllers
 
             return Ok(new AmbulanceLocationResponse(
                 ambulance.Id,
-                ambulance.StationName,
+                ambulance.DriverName,
                 ambulance.AvailabilityStatus,
                 ambulance.Latitude,
                 ambulance.Longitude,
@@ -144,7 +144,7 @@ namespace GraduationProject.Controllers
 
             return Ok(new AmbulanceLocationResponse(
                 ambulance.Id,
-                ambulance.StationName,
+                ambulance.DriverName,
                 ambulance.AvailabilityStatus,
                 ambulance.Latitude,
                 ambulance.Longitude,
@@ -194,7 +194,7 @@ namespace GraduationProject.Controllers
 
             return Ok(new AmbulanceLocationResponse(
                 ambulance.Id,
-                ambulance.StationName,
+                ambulance.DriverName,
                 ambulance.AvailabilityStatus,
                 ambulance.Latitude,
                 ambulance.Longitude,
@@ -232,7 +232,7 @@ namespace GraduationProject.Controllers
                 .OrderBy(a => LocationHelper.HaversineDistance(lat, lng, a.Latitude!.Value, a.Longitude!.Value))
                 .Take(count)
                 .Select(a => new AmbulanceLocationResponse(
-                    a.Id, a.StationName, a.AvailabilityStatus,
+                    a.Id, a.DriverName, a.AvailabilityStatus,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
                     DistanceFromPatientKm: Math.Round(LocationHelper.HaversineDistance(
                         lat, lng, a.Latitude!.Value, a.Longitude!.Value), 2)))
@@ -245,7 +245,7 @@ namespace GraduationProject.Controllers
                     .Where(a => !a.Latitude.HasValue || !a.Longitude.HasValue)
                     .Take(remaining)
                     .Select(a => new AmbulanceLocationResponse(
-                        a.Id, a.StationName, a.AvailabilityStatus,
+                        a.Id, a.DriverName, a.AvailabilityStatus,
                         a.Latitude, a.Longitude, a.LastLocationUpdate,
                         DistanceFromPatientKm: null))
                     .ToList();

@@ -24,6 +24,7 @@ import 'package:meditrack/screens/pages/lab_request_page.dart';
 import 'package:meditrack/screens/pages/progress_page.dart';
 import 'package:meditrack/screens/pages/relative_requests_page.dart';
 import 'package:meditrack/screens/pages/relative_chat_page.dart';
+import 'package:meditrack/screens/pages/relative_patients_page.dart';
 import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/location_service.dart';
 
@@ -62,14 +63,14 @@ const _labNav = [
   _NavItem('profile',   'My Account',  Icons.person_outline,      section: 'Settings'),
 ];
 const _relativeNav = [
-  _NavItem('dashboard',    'Home',           Icons.home_outlined,            section: 'Main'),
-  _NavItem('vitals',       'Patient Vitals', Icons.monitor_heart_outlined),
-  _NavItem('progress',     'Progress',       Icons.show_chart_rounded),
-  _NavItem('followups',    'Follow-ups',     Icons.assignment_outlined),
-  _NavItem('relative-chat','Care Team',      Icons.chat_bubble_outline_rounded),
-  _NavItem('requests',     'Link Requests',  Icons.person_add_outlined),
-  _NavItem('ambulances',   'Ambulances',     Icons.emergency_outlined,       section: 'Emergency'),
-  _NavItem('profile',      'My Account',     Icons.person_outline,           section: 'Settings'),
+  _NavItem('dashboard',       'Home',           Icons.home_outlined,            section: 'Main'),
+  _NavItem('my-patients',     'My Patients',    Icons.people_outline),
+  _NavItem('vitals',          'Patient Vitals', Icons.monitor_heart_outlined),
+  _NavItem('progress',        'Progress',       Icons.show_chart_rounded),
+  _NavItem('followups',       'Follow-ups',     Icons.assignment_outlined),
+  _NavItem('relative-chat',   'Care Team',      Icons.chat_bubble_outline_rounded),
+  _NavItem('ambulances',      'Ambulances',     Icons.emergency_outlined,       section: 'Emergency'),
+  _NavItem('profile',         'My Account',     Icons.person_outline,           section: 'Settings'),
 ];
 const _ambulanceNav = [
   _NavItem('dashboard',  'Dashboard',  Icons.grid_view_rounded,  section: 'Main'),
@@ -113,7 +114,8 @@ Widget _buildPage(String id, UserRole role) {
     case 'ambulances': return const AmbulancesPage();
     case 'profile':    return const ProfilePage();
     case 'progress':   return const ProgressPage();
-    case 'requests':   return const RelativeRequestsPage();
+    case 'requests':      return const RelativeRequestsPage();
+    case 'my-patients':   return const RelativePatientsPage();
     case 'relative-chat': return const RelativeChatPage();
     case 'lab-request':return const LabRequestPage();
     default:           return const Center(child: Text('Page not found'));
@@ -126,6 +128,8 @@ String _pageTitle(String id) {
     'vitals': 'Vital Signs', 'labs': 'Labs', 'tests': 'Medical Tests',
     'followups': 'Follow-ups', 'ambulances': 'Ambulances', 'sensors': 'Sensors',
     'profile': 'My Account', 'lab-request': 'Lab Tests',
+    'my-patients': 'My Patients', 'requests': 'Relative Requests',
+    'relative-chat': 'Care Team',
   };
   return titles[id] ?? id;
 }
@@ -194,17 +198,28 @@ class _MobileShell extends StatelessWidget {
                 shape: BoxShape.circle),
             child: InkWell(
               onTap: () => onNavigate('profile'),
-              child: user?.profilePictureUrl != null
-                  ? ClipOval(child: Image.network(
-                      '$serverBase${user!.profilePictureUrl}',
+              child: Builder(builder: (context) {
+                final picUrl = user?.profilePictureUrl;
+                if (picUrl != null && picUrl.isNotEmpty) {
+                  final fullUrl = '$serverBase$picUrl';
+                  return ClipOval(
+                    child: CachedNetworkImage(
+                      imageUrl: fullUrl,
+                      cacheKey: fullUrl,
                       width: 30, height: 30, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Center(child: Text(user?.initials ?? 'U',
+                      placeholder: (_, __) => Center(child: Text(user?.initials ?? 'U',
                           style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
                               color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
-                    ))
-                  : Center(child: Text(user?.initials ?? 'U',
-                      style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
-                          color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
+                      errorWidget: (_, __, ___) => Center(child: Text(user?.initials ?? 'U',
+                          style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
+                              color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt))),
+                    ),
+                  );
+                }
+                return Center(child: Text(user?.initials ?? 'U',
+                    style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w700,
+                        color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt)));
+              }),
             ),
           ),
         ],

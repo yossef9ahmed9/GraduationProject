@@ -69,8 +69,20 @@ namespace GraduationProject.Services
                     $"Cannot accept — current status is {dispatch.Status}.",
                     StatusCodes.Status400BadRequest));
 
+            // Accept this dispatch
             dispatch.Status              = "OnTheWay";
             ambulance.AvailabilityStatus = "Busy";
+
+            // Cancel all other Pending dispatches for the same patient
+            // (the other ambulances that were also notified but haven't responded)
+            var otherPending = await _context.EmergencyDispatches
+                .Where(d => d.PatientId == dispatch.PatientId &&
+                            d.Id != dispatchId &&
+                            d.Status == "Pending")
+                .ToListAsync(cancellationToken);
+
+            foreach (var other in otherPending)
+                other.Status = "Cancelled";
 
             await _context.SaveChangesAsync(cancellationToken);
 
@@ -93,7 +105,6 @@ namespace GraduationProject.Services
                     StatusCodes.Status404NotFound));
 
             var dispatch = await _context.EmergencyDispatches
-                .Include(d => d.Patient)
                 .FirstOrDefaultAsync(d =>
                     d.Id == dispatchId && d.AmbulanceId == ambulance.Id, cancellationToken);
 
@@ -109,40 +120,40 @@ namespace GraduationProject.Services
                     $"Cannot reject — current status is {dispatch.Status}.",
                     StatusCodes.Status400BadRequest));
 
-            // Free this ambulance
-            dispatch.Status              = "Cancelled";
-            ambulance.AvailabilityStatus = "Available";
+            // Cancel just this ambulance's dispatch — other ambulances still have
+            // their own Pending dispatches and can still accept
+            dispatch.Status = "Cancelled";
 
-            // Find next nearest available ambulance (Haversine simplified)
-            double lat = dispatch.PatientLatitude;
-            double lng = dispatch.PatientLongitude;
+            // Check if any other ambulances still have a Pending dispatch for this patient
+            var othersStillPending = await _context.EmergencyDispatches
+                .AnyAsync(d => d.PatientId == dispatch.PatientId &&
+                               d.Id != dispatchId &&
+                               d.Status == "Pending",
+                    cancellationToken);
 
-            var next = await _context.Ambulances
-                .Where(a => a.AvailabilityStatus == "Available" &&
-                            !a.IsDeleted &&
-                            a.Id != ambulance.Id)
-                .Select(a => new
-                {
-                    Ambulance = a,
-                    Dist = Math.Sqrt(
-                        Math.Pow((a.Latitude  ?? 0) - lat, 2) +
-                        Math.Pow((a.Longitude ?? 0) - lng, 2))
-                })
-                .OrderBy(x => x.Dist)
-                .Select(x => x.Ambulance)
-                .FirstOrDefaultAsync(cancellationToken);
-
+            // If no one else is pending, try to find a new nearest ambulance
             bool reDispatched = false;
-
-            if (next is not null)
+            if (!othersStillPending)
             {
-                var rows = await _context.Ambulances
-                    .Where(a => a.Id == next.Id && a.AvailabilityStatus == "Available")
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(a => a.AvailabilityStatus, "Busy"),
-                        cancellationToken);
+                double lat = dispatch.PatientLatitude;
+                double lng = dispatch.PatientLongitude;
 
-                if (rows > 0)
+                var next = await _context.Ambulances
+                    .Where(a => a.AvailabilityStatus == "Available" &&
+                                !a.IsDeleted &&
+                                a.Id != ambulance.Id)
+                    .Select(a => new
+                    {
+                        Ambulance = a,
+                        Dist = Math.Sqrt(
+                            Math.Pow((a.Latitude  ?? 0) - lat, 2) +
+                            Math.Pow((a.Longitude ?? 0) - lng, 2))
+                    })
+                    .OrderBy(x => x.Dist)
+                    .Select(x => x.Ambulance)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (next is not null)
                 {
                     var newDispatch = new EmergencyDispatch
                     {
@@ -154,7 +165,6 @@ namespace GraduationProject.Services
                         PatientLongitude = lng,
                         Notes            = (dispatch.Notes ?? "") + " [Re-dispatched]",
                     };
-
                     await _context.EmergencyDispatches.AddAsync(newDispatch, cancellationToken);
                     reDispatched = true;
                 }
@@ -165,9 +175,11 @@ namespace GraduationProject.Services
             return Result.Success(new DispatchActionResponse(
                 dispatch.Id,
                 "Cancelled",
-                reDispatched
-                    ? "Rejected. Re-dispatched to next ambulance."
-                    : "Rejected. No available ambulances.",
+                othersStillPending
+                    ? "Rejected. Other ambulances are still notified."
+                    : reDispatched
+                        ? "Rejected. Re-dispatched to next ambulance."
+                        : "Rejected. No available ambulances.",
                 reDispatched));
         }
     }

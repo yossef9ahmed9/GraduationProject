@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,8 @@ import 'package:meditrack/services/chat_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
+import 'package:meditrack/screens/user_profile_screen.dart';
+import 'package:meditrack/screens/ambulance_tracking_screen.dart';
 
 class PatientsPage extends StatefulWidget {
   const PatientsPage({super.key});
@@ -18,14 +21,19 @@ class PatientsPage extends StatefulWidget {
 class _PatientsPageState extends State<PatientsPage> {
   final _searchCtrl = TextEditingController();
   String _query = '';
-  // Chat contacts (emails) loaded once — used to filter Lab's patient list
   Set<String> _chatContactEmails = {};
   bool _contactsLoaded = false;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadContacts());
+    _autoRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) {
+        context.read<AppProvider>().refreshPatients(context.read<AuthProvider>().role);
+      }
+    });
   }
 
   Future<void> _loadContacts() async {
@@ -40,7 +48,11 @@ class _PatientsPageState extends State<PatientsPage> {
   }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _autoRefresh?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   /// Returns patients visible to the current role:
   /// - Doctor  → only patients linked via follow-ups (already filtered by backend)
@@ -151,8 +163,12 @@ class _PatientsPageState extends State<PatientsPage> {
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                       (_, i) => _PatientCard(
-                    patient: filtered[i],
-                    canChat: canChat,
+                    patient:       filtered[i],
+                    canChat:       canChat,
+                    activeDispatch: app.dispatches
+                        .where((d) =>
+                            d.patientId == filtered[i].id && d.isActive)
+                        .firstOrNull,
                   ),
                   childCount: filtered.length,
                 ),
@@ -167,37 +183,49 @@ class _PatientsPageState extends State<PatientsPage> {
 class _PatientCard extends StatelessWidget {
   final PatientResponse patient;
   final bool canChat;
-  const _PatientCard({required this.patient, required this.canChat});
+  final EmergencyDispatchResponse? activeDispatch;
+  const _PatientCard({
+    required this.patient,
+    required this.canChat,
+    this.activeDispatch,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return AppCard(
       padding: const EdgeInsets.all(14),
-      child: Row(children: [
-        AvatarWidget(initials: patient.initials, size: 40, fontSize: 14, photoUrl: patient.profilePictureUrl),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(patient.name,
-                style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text(patient.email,
-                style: GoogleFonts.dmSans(fontSize: 12,
-                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-            if (patient.phone.isNotEmpty) ...[
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Top row: avatar + info + gender badge
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          AvatarWidget(
+              initials: patient.initials, size: 40, fontSize: 14,
+              photoUrl: patient.profilePictureUrl),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(patient.name,
+                  style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600)),
               const SizedBox(height: 2),
-              Text(patient.phone,
-                  style: GoogleFonts.dmSans(fontSize: 11.5,
-                      color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-            ],
-            if (patient.isInEmergency) ...[
-              const SizedBox(height: 4),
-              BadgeWidget(label: 'EMERGENCY', type: BadgeType.red),
-            ],
-          ]),
-        ),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(patient.email,
+                  style: GoogleFonts.dmSans(fontSize: 12,
+                      color: isDark
+                          ? AppColors.darkTextSecondary
+                          : AppColors.textSecondary)),
+              if (patient.phone.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(patient.phone,
+                    style: GoogleFonts.dmSans(fontSize: 11.5,
+                        color: isDark
+                            ? AppColors.darkTextTertiary
+                            : AppColors.textTertiary)),
+              ],
+              if (patient.isInEmergency) ...[
+                const SizedBox(height: 4),
+                BadgeWidget(label: 'EMERGENCY', type: BadgeType.red),
+              ],
+            ]),
+          ),
           BadgeWidget(
             label: patient.gender.isNotEmpty
                 ? patient.gender[0].toUpperCase() + patient.gender.substring(1)
@@ -205,29 +233,72 @@ class _PatientCard extends StatelessWidget {
             type: patient.gender.toLowerCase() == 'female'
                 ? BadgeType.blue : BadgeType.green,
           ),
-          // Chat button — doctor/admin/lab can chat with patient
-          if (canChat && patient.email.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => ChatScreen(
-                  otherEmail: patient.email,
-                  otherName:  patient.name,
+        ]),
+
+        // Bottom row: Profile + Chat + Track buttons (full width)
+        if (canChat && patient.email.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => UserProfileScreen.patient(patient),
+                )),
+                icon: const Icon(Icons.person_outline, size: 14),
+                label: Text('Profile', style: GoogleFonts.dmSans(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
-              )),
-              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
-              label: Text('Chat',
-                  style: GoogleFonts.dmSans(fontSize: 12)),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
               ),
             ),
-          ],
-        ]),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ChatScreen(
+                    otherEmail: patient.email,
+                    otherName:  patient.name,
+                  ),
+                )),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
+                label: Text('Chat', style: GoogleFonts.dmSans(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+            if (activeDispatch != null) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => AmbulanceTrackingScreen(
+                      patientId:   patient.id,
+                      patientName: patient.name,
+                      dispatchId:  activeDispatch!.id,
+                    ),
+                  )),
+                  icon: const Icon(Icons.emergency_rounded, size: 14),
+                  label: Text('Track', style: GoogleFonts.dmSans(fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ),
+            ],
+          ]),
+        ],
       ]),
     );
   }

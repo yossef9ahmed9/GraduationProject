@@ -67,21 +67,39 @@ namespace GraduationProject.Controllers
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            var patients = await _context.Patients
+            var patientList = await _context.Patients
                 .AsNoTracking()
                 .Where(p => patientIds.Contains(p.Id))
                 .OrderBy(p => p.Id)
-                .ProjectToType<PatientResponse>()
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+                .ToListAsync(cancellationToken);
+
+            var picMap = await _context.Users
+                .AsNoTracking()
+                .Where(u => patientList.Select(p => p.Email).Contains(u.Email!))
+                .Select(u => new { u.Email, u.ProfilePictureUrl })
+                .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, cancellationToken);
+
+            var totalCount = patientList.Count;
+            var paged      = patientList
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(p => p.Adapt<PatientResponse>() with
+                {
+                    ProfilePictureUrl = picMap.GetValueOrDefault(p.Email)
+                })
+                .ToList();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            var patients = new PagedResponse<PatientResponse>(
+                paged, pageNumber, pageSize, totalCount, totalPages,
+                pageNumber > 1, pageNumber < totalPages);
 
             return Ok(patients);
         }
 
         // ── NEW: GET /api/patients/relative ─────────────────────────
-        // Returns only the patient(s) that are approved-linked to the
-        // calling relative (i.e. Relative.PatientId is set).
-        //
-        // Route note: "relative" must come BEFORE "{id}".
+        // Returns all patients that have an approved RelativePatientRequest
+        // for the calling relative (supports multiple linked patients).
         [HttpGet("relative")]
         [Authorize(Roles = "Relative")]
         public async Task<IActionResult> GetMyLinkedPatients(
@@ -97,19 +115,46 @@ namespace GraduationProject.Controllers
 
             var relative = await _context.Relatives
                 .AsNoTracking()
+                .Include(r => r.PatientRequests)
                 .FirstOrDefaultAsync(r => r.Email == email, cancellationToken);
 
             if (relative is null)
                 return NotFound(new { title = "Relative record not found." });
 
-            if (relative.PatientId is null)
+            var approvedPatientIds = relative.PatientRequests
+                .Where(r => r.Status == "Approved")
+                .Select(r => r.PatientId)
+                .ToList();
+
+            if (!approvedPatientIds.Any())
                 return Ok(new { items = Array.Empty<object>(), pageNumber, pageSize, totalCount = 0, totalPages = 0 });
 
-            var patients = await _context.Patients
+            var patientList = await _context.Patients
                 .AsNoTracking()
-                .Where(p => p.Id == relative.PatientId.Value)
-                .ProjectToType<PatientResponse>()
-                .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
+                .Where(p => approvedPatientIds.Contains(p.Id))
+                .OrderBy(p => p.Id)
+                .ToListAsync(cancellationToken);
+
+            var picMap = await _context.Users
+                .AsNoTracking()
+                .Where(u => patientList.Select(p => p.Email).Contains(u.Email!))
+                .Select(u => new { u.Email, u.ProfilePictureUrl })
+                .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, cancellationToken);
+
+            var totalCount = patientList.Count;
+            var paged      = patientList
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(p => p.Adapt<PatientResponse>() with
+                {
+                    ProfilePictureUrl = picMap.GetValueOrDefault(p.Email)
+                })
+                .ToList();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            var patients = new PagedResponse<PatientResponse>(
+                paged, pageNumber, pageSize, totalCount, totalPages,
+                pageNumber > 1, pageNumber < totalPages);
 
             return Ok(patients);
         }
@@ -171,6 +216,48 @@ namespace GraduationProject.Controllers
             return result.IsSuccess
                 ? NoContent()
                 : result.ToProblem();
+        }
+
+        // ── PUT /api/patients/{id}/medical-record ───────────────────
+        // Allows Patient (own record), Doctor (with a FollowUp), or Admin
+        // to update the medical profile fields. Only non-null fields are updated.
+        [HttpPut("{id}/medical-record")]
+        [Authorize(Roles = "Patient,Doctor,Admin")]
+        public async Task<IActionResult> UpdateMedicalRecord(
+            int id,
+            [FromBody] UpdateMedicalRecordRequest request,
+            CancellationToken cancellationToken)
+        {
+            var patient = await _context.Patients.FindAsync(new object[] { id }, cancellationToken);
+            if (patient is null)
+                return NotFound(new { message = "Patient not found." });
+
+            if (User.IsInRole("Patient"))
+            {
+                var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                         ?? User.FindFirst("email")?.Value;
+                if (patient.Email != email) return Forbid();
+            }
+
+            if (User.IsInRole("Doctor"))
+            {
+                var email  = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                          ?? User.FindFirst("email")?.Value;
+                var doctor = await _context.Doctors.AsNoTracking()
+                    .FirstOrDefaultAsync(d => d.Email == email, cancellationToken);
+                if (doctor is null) return Forbid();
+                var hasFollowUp = await _context.FollowUps
+                    .AnyAsync(f => f.DoctorId == doctor.Id && f.PatientId == id, cancellationToken);
+                if (!hasFollowUp) return Forbid();
+            }
+
+            if (request.MedicalRecord   is not null) patient.MedicalRecord   = request.MedicalRecord;
+            if (request.ChronicDiseases is not null) patient.ChronicDiseases = request.ChronicDiseases;
+            if (request.Allergies       is not null) patient.Allergies       = request.Allergies;
+            if (request.BloodType       is not null) patient.BloodType       = request.BloodType;
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return NoContent();
         }
     }
 }

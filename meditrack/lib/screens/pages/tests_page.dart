@@ -192,9 +192,16 @@ class _TestsPageState extends State<TestsPage> {
   Future<void> _saveOcrResult() async {
     if (_ocrPatientId == null || _ocrLabId == null || _pendingOcrTests.isEmpty) return;
 
-    // Build the same pipe-separated string used by _submitManual
+    // Build pipe-separated result WITH status so _TestTile can colour chips:
+    // "Hemoglobin: 14.8 (Normal)" → normal chip, "MCV: 79.6 (Low)" → red chip
     final resultStr = _pendingOcrTests
-        .map((t) => '${t['name'] ?? t['Name']}: ${t['value'] ?? t['Value']}')
+        .where((t) => (t['status'] ?? t['Status'] ?? '') != 'UnreadableValue')
+        .map((t) {
+          final name   = (t['name']   ?? t['Name']   ?? '').toString();
+          final value  = (t['value']  ?? t['Value']  ?? 0).toString();
+          final status = (t['status'] ?? t['Status'] ?? 'Normal').toString();
+          return status == 'Normal' ? '$name: $value' : '$name: $value ($status)';
+        })
         .join(' | ');
 
     setState(() { _busy = true; _message = null; });
@@ -240,12 +247,62 @@ class _TestsPageState extends State<TestsPage> {
   }
 
   // OCR for Lab (linked to appointment)
+  // If appointment has multiple tests, lets the lab pick multiple images —
+  // one per test. Each image is sent as a separate OCR call and saved as a
+  // separate MedicalTest. Single-test appointments use the existing single-
+  // file flow so the preview/manual-entry path is preserved.
   Future<void> _scanOcr(LabAppointmentResponse appointment) async {
-    await _runOcr(
-      patientId: appointment.patientId,
-      labId: appointment.labId,
-      appointmentId: appointment.id,
+    final testNames = appointment.testNames;
+
+    if (testNames.length <= 1) {
+      // Single test — use existing preview flow
+      await _runOcr(
+        patientId:     appointment.patientId,
+        labId:         appointment.labId,
+        appointmentId: appointment.id,
+      );
+      return;
+    }
+
+    // Multiple tests — pick multiple images (ideally one per test)
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'bmp', 'tif', 'tiff'],
+      allowMultiple: true,
+      withData: true,
     );
+    if (picked == null || picked.files.isEmpty) return;
+
+    setState(() { _busy = true; _message = null; });
+
+    int saved = 0;
+    for (final file in picked.files) {
+      final bytes = file.bytes;
+      if (bytes == null) continue;
+      final res = await apiService.uploadOcrReport(
+        fileName:  file.name,
+        bytes:     bytes,
+        patientId: appointment.patientId,
+        labId:     appointment.labId,
+      );
+      if (res.ok) saved++;
+    }
+
+    // Mark appointment complete if at least one image was saved
+    if (saved > 0) {
+      await apiService.updateLabAppointmentStatus(appointment.id, 'Completed');
+    }
+
+    await _refresh();
+    if (!mounted) return;
+    setState(() {
+      _busy    = false;
+      _isError = saved == 0;
+      _message = saved == 0
+          ? 'Failed to upload any images.'
+          : 'Saved $saved of ${picked.files.length} '
+            'result image${saved > 1 ? 's' : ''}.';
+    });
   }
 
   // OCR for Patient (standalone)
@@ -264,13 +321,31 @@ class _TestsPageState extends State<TestsPage> {
   Future<void> _submitManual() async {
     if (_ocrPatientId == null || _ocrLabId == null) return;
     final tests = List<Map>.from((_ocrResult?.analysis['tests'] as List? ?? []));
-    final allFields = Map<String, String>.fromEntries(
-        tests.map((t) => MapEntry(t['name'] as String, '${t['value']}')));
+
+    // Start with OCR-recognised values (skip unreadable ones)
+    final allFields = <String, Map<String, String>>{};
+    for (final t in tests) {
+      final name   = (t['name']   ?? t['Name']   ?? '').toString();
+      final value  = (t['value']  ?? t['Value']  ?? 0).toString();
+      final status = (t['status'] ?? t['Status'] ?? 'Normal').toString();
+      if (name.isNotEmpty && status != 'UnreadableValue') {
+        allFields[name] = {'value': value, 'status': status};
+      }
+    }
+
+    // Override/add manual entries (status defaults to Normal for user-typed values)
     for (final e in _manualCtrls.entries) {
       final v = e.value.text.trim();
-      if (v.isNotEmpty) allFields[e.key] = v;
+      if (v.isNotEmpty) allFields[e.key] = {'value': v, 'status': 'Normal'};
     }
-    final resultStr = allFields.entries.map((e) => '${e.key}: ${e.value}').join(' | ');
+
+    // Build "Name: value (Status)" pipe string — omit status label when Normal
+    final resultStr = allFields.entries.map((e) {
+      final status = e.value['status'] ?? 'Normal';
+      return status == 'Normal'
+          ? '${e.key}: ${e.value['value']}'
+          : '${e.key}: ${e.value['value']} ($status)';
+    }).join(' | ');
     setState(() { _busy = true; _message = null; });
     final res = await apiService.addMedicalTest(MedicalTestRequest(
       name: _ocrTestType, result: resultStr,

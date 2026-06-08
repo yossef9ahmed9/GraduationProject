@@ -117,10 +117,12 @@ namespace GraduationProject.Services
             string notes,
             CancellationToken cancellationToken = default)
         {
-            // Get FCM tokens for all relatives of this patient
+            // Get FCM tokens for all relatives linked to this patient via approved requests
             var relativeFcmTokens = await _context.Relatives
                 .AsNoTracking()
-                .Where(r => r.PatientId == patientId && r.FcmToken != null)
+                .Where(r => r.PatientRequests.Any(req =>
+                    req.PatientId == patientId && req.Status == "Approved")
+                    && r.FcmToken != null)
                 .Select(r => r.FcmToken!)
                 .ToListAsync(cancellationToken);
 

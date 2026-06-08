@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,7 @@ import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
+import 'package:meditrack/screens/user_profile_screen.dart';
 
 class DoctorsPage extends StatefulWidget {
   const DoctorsPage({super.key});
@@ -20,9 +22,22 @@ class _DoctorsPageState extends State<DoctorsPage> {
   String _query = '';
   String? _selectedSpec;
   bool _booking = false;
+  Timer? _autoRefresh;
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    _autoRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) context.read<AppProvider>().refreshDoctors();
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoRefresh?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   List<DoctorResponse> _filtered(List<DoctorResponse> all) {
     final q = _query.trim().toLowerCase();
@@ -229,53 +244,67 @@ class _DoctorCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return AppCard(
       padding: const EdgeInsets.all(14),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        AvatarWidget(initials: doctor.initials, size: 40, fontSize: 14, photoUrl: doctor.profilePictureUrl),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(doctor.name,
-              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(doctor.specialization,
-              style: GoogleFonts.dmSans(fontSize: 12,
-                  color: isDark ? AppColors.darkAccent : AppColors.accent,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
-          Text(doctor.email,
-              style: GoogleFonts.dmSans(fontSize: 11.5,
-                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-        ])),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          const SizedBox(height: 8),
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            // Chat button — always visible
-            OutlinedButton.icon(
-              onPressed: onChat,
-              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
-              label: Text('Chat', style: GoogleFonts.dmSans(fontSize: 12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Top row: avatar + info
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          AvatarWidget(
+              initials: doctor.initials, size: 40, fontSize: 14,
+              photoUrl: doctor.profilePictureUrl),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(doctor.name,
+                style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(doctor.specialization,
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark ? AppColors.darkAccent : AppColors.accent,
+                    fontWeight: FontWeight.w500)),
+            const SizedBox(height: 2),
+            Text(doctor.email,
+                style: GoogleFonts.dmSans(fontSize: 11.5,
+                    color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          ])),
+        ]),
+
+        // Bottom row: Profile + Chat + Book (full width)
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => UserProfileScreen.doctor(doctor),
+            )),
+            icon: const Icon(Icons.person_outline, size: 14),
+            label: Text('Profile', style: GoogleFonts.dmSans(fontSize: 12)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          )),
+          const SizedBox(width: 6),
+          Expanded(child: OutlinedButton.icon(
+            onPressed: onChat,
+            icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
+            label: Text('Chat', style: GoogleFonts.dmSans(fontSize: 12)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          )),
+          if (canBook) ...[
+            const SizedBox(width: 6),
+            Expanded(child: OutlinedButton.icon(
+              onPressed: onBook,
+              icon: const Icon(Icons.calendar_month_outlined, size: 14),
+              label: Text('Book', style: GoogleFonts.dmSans(fontSize: 12)),
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-            ),
-            // Book button — patients only
-            if (canBook) ...[
-              const SizedBox(width: 6),
-              OutlinedButton.icon(
-                onPressed: onBook,
-                icon: const Icon(Icons.calendar_month_outlined, size: 14),
-                label: Text('Book', style: GoogleFonts.dmSans(fontSize: 12)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ],
-          ]),
+            )),
+          ],
         ]),
       ]),
     );

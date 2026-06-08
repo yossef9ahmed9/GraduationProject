@@ -25,10 +25,10 @@ namespace GraduationProject.Services
                 query = query.Where(a => a.Email == callerEmail);
 
             return await query
-                .OrderBy(a => a.StationName)
+                .OrderBy(a => a.DriverName)
                 .Select(a => new AmbulanceResponse(
-                    a.Id, a.Email, a.StationName, a.Phone, a.AvailabilityStatus,
-                    a.LicensePlate, a.DriverName, a.DriverPhone,
+                    a.Id, a.Email, a.DriverName, a.DriverPhone, a.LicensePlate,
+                    a.Phone, a.AvailabilityStatus, a.ServiceArea,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
                     a.EmergencyDispatches.Count(d =>
                         d.Status != "Resolved" && d.Status != "Cancelled")))
@@ -41,10 +41,10 @@ namespace GraduationProject.Services
             return await _context.Ambulances
                 .AsNoTracking()
                 .Where(a => !a.IsDeleted && a.AvailabilityStatus == "Available")
-                .OrderBy(a => a.StationName)
+                .OrderBy(a => a.DriverName)
                 .Select(a => new AmbulanceResponse(
-                    a.Id, a.Email, a.StationName, a.Phone, a.AvailabilityStatus,
-                    a.LicensePlate, a.DriverName, a.DriverPhone,
+                    a.Id, a.Email, a.DriverName, a.DriverPhone, a.LicensePlate,
+                    a.Phone, a.AvailabilityStatus, a.ServiceArea,
                     a.Latitude, a.Longitude, a.LastLocationUpdate, 0))
                 .ToListAsync(cancellationToken);
         }
@@ -57,8 +57,8 @@ namespace GraduationProject.Services
                 .AsNoTracking()
                 .Where(a => a.Id == id && !a.IsDeleted)
                 .Select(a => new AmbulanceResponse(
-                    a.Id, a.Email, a.StationName, a.Phone, a.AvailabilityStatus,
-                    a.LicensePlate, a.DriverName, a.DriverPhone,
+                    a.Id, a.Email, a.DriverName, a.DriverPhone, a.LicensePlate,
+                    a.Phone, a.AvailabilityStatus, a.ServiceArea,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
                     a.EmergencyDispatches.Count(d =>
                         d.Status != "Resolved" && d.Status != "Cancelled")))

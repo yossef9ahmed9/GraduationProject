@@ -228,11 +228,11 @@ class _DndBar extends StatelessWidget {
       ),
       child: Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(ambulance.stationName,
+          Text(ambulance.driverName,
               style: GoogleFonts.dmSans(
                   fontSize: 14, fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
-          Text(ambulance.driverName,
+          Text(ambulance.serviceArea ?? ambulance.licensePlate,
               style: GoogleFonts.dmSans(fontSize: 12,
                   color: isDark
                       ? AppColors.darkTextSecondary
@@ -542,11 +542,11 @@ class _AmbCard extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(ambulance.stationName,
+          Text(ambulance.driverName,
               style: GoogleFonts.dmSans(
                   fontSize: 14, fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
-          Text(ambulance.driverName,
+          Text(ambulance.serviceArea ?? ambulance.licensePlate,
               style: GoogleFonts.dmSans(fontSize: 12,
                   color: isDark
                       ? AppColors.darkTextSecondary

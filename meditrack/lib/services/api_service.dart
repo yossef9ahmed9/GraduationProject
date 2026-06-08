@@ -61,7 +61,11 @@ class ApiService {
       if (res.statusCode >= 200 && res.statusCode < 300) {
         return ApiResult.success(parse(jsonDecode(res.body)), res.statusCode);
       }
-      return ApiResult.failure(_errorMsg(res), res.statusCode);
+      return ApiResult.failure(
+        _errorMsg(res),
+        res.statusCode,
+        fieldErrors: _fieldErrors(res),
+      );
     } catch (e) {
       return ApiResult.failure(e.toString(), null);
     }
@@ -146,6 +150,16 @@ class ApiService {
   String _errorMsg(http.Response res) {
     try {
       final j = jsonDecode(res.body);
+      // FluentValidation / ASP.NET ModelState returns { "errors": { "Field": ["msg"] } }
+      if (j is Map<String, dynamic> && j.containsKey('errors')) {
+        final errors = j['errors'];
+        if (errors is Map) {
+          final messages = errors.values
+              .expand((v) => v is List ? v.map((e) => e.toString()) : [v.toString()])
+              .toList();
+          if (messages.isNotEmpty) return messages.join('\n');
+        }
+      }
       return j['message'] as String? ??
           j['title'] as String? ??
           j['error'] as String? ??
@@ -153,6 +167,26 @@ class ApiService {
     } catch (_) {
       return 'Error ${res.statusCode}';
     }
+  }
+
+  /// Parses FluentValidation field-level errors from a 400 response.
+  /// Returns a map of { fieldName (lowercased) → first error message }.
+  Map<String, String> _fieldErrors(http.Response res) {
+    try {
+      final j = jsonDecode(res.body);
+      if (j is Map<String, dynamic> && j.containsKey('errors')) {
+        final errors = j['errors'];
+        if (errors is Map) {
+          return {
+            for (final entry in errors.entries)
+              entry.key.toLowerCase(): entry.value is List
+                  ? (entry.value as List).first.toString()
+                  : entry.value.toString(),
+          };
+        }
+      }
+    } catch (_) {}
+    return {};
   }
 
   // ── Helper: parse backend paginated list ──────────────────────
@@ -1055,6 +1089,49 @@ class ApiService {
         return ApiResult.success(j['url'] as String? ?? '', res.statusCode);
       }
       return ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
+
+  /// DELETE /api/auth/profile-picture — removes profile picture
+  Future<ApiResult<bool>> deleteProfilePicture() async {
+    try {
+      final res = await http.delete(
+        Uri.parse('$_base/auth/profile-picture'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return ApiResult.success(true, res.statusCode);
+      }
+      return ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
+
+  Future<ApiResult<bool>> updateMedicalRecord(
+    int patientId, {
+    String? medicalRecord,
+    String? chronicDiseases,
+    String? allergies,
+    String? bloodType,
+  }) async {
+    final body = <String, dynamic>{
+      if (medicalRecord   != null) 'medicalRecord':   medicalRecord,
+      if (chronicDiseases != null) 'chronicDiseases': chronicDiseases,
+      if (allergies       != null) 'allergies':       allergies,
+      if (bloodType       != null) 'bloodType':       bloodType,
+    };
+    try {
+      final res = await http.put(
+        Uri.parse('$_base/patients/$patientId/medical-record'),
+        headers: _headers,
+        body: jsonEncode(body),
+      ).timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
     } catch (e) {
       return ApiResult.failure(e.toString(), null);
     }

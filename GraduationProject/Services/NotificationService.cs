@@ -23,9 +23,12 @@ namespace GraduationProject.Services
                 notification.Notes,
                 notification.AmbulanceInfo);
 
-            // Notify primary relatives via email
+            // Notify primary relatives via email — now via approved PatientRequests
             var relatives = await _context.Relatives
-                .Where(r => r.PatientId == notification.PatientId
+                .Include(r => r.PatientRequests)
+                .Where(r => r.PatientRequests.Any(req =>
+                                req.PatientId == notification.PatientId &&
+                                req.Status == "Approved")
                          && r.IsPrimaryContact
                          && r.Email != null)
                 .ToListAsync(cancellationToken);

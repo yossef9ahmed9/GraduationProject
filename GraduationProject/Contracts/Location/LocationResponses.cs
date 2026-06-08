@@ -14,15 +14,11 @@ namespace GraduationProject.Contracts.Location
     // Returned to the patient's app so they can show the ambulance on a map.
     public record AmbulanceLocationResponse(
         int AmbulanceId,
-        string StationName,
+        string DriverName,           // ← was StationName
         string AvailabilityStatus,
         double? Latitude,
         double? Longitude,
         DateTime? LastLocationUpdate,
-
-        // NEW: straight-line distance in km from the patient to this ambulance.
-        // Calculated server-side so the frontend doesn't need to implement Haversine.
-        // Null when either party has no coordinates.
         double? DistanceFromPatientKm
     );
 }

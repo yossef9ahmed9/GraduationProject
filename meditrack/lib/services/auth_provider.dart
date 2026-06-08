@@ -8,11 +8,15 @@ class AuthProvider extends ChangeNotifier {
   AppUser? _user;
   bool _isLoading = false;
   String? _error;
+  Map<String, String> _fieldErrors = {};
 
   AppUser? get user => _user;
   bool get isLoading => _isLoading;
   bool get isLoggedIn => _user != null;
   String? get error => _error;
+  /// Per-field validation errors from the last failed register call.
+  /// Key is the lowercased field name (e.g. 'phone', 'email').
+  Map<String, String> get fieldErrors => _fieldErrors;
   UserRole get role => _user != null ? userRoleFromString(_user!.role) : UserRole.patient;
 
   static const _roleUri = 'http://schemas.microsoft.com/ws/2008/06/identity/claims/role';
@@ -46,18 +50,22 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> login(String email, String password) async {
-    _isLoading = true; _error = null; notifyListeners();
+    _isLoading = true; _error = null; _fieldErrors = {}; notifyListeners();
     final res = await apiService.login(email, password);
     _isLoading = false;
     if (res.ok && res.data != null) {
       _user = _buildUser(res.data!);
       apiService.setToken(_user!.token);
       await _persist(); notifyListeners(); return true;
-    } else { _error = res.error ?? 'Invalid email or password.'; notifyListeners(); return false; }
+    } else {
+      // Always show a friendly message for login — never expose raw server errors
+      _error = 'Wrong email or password.';
+      notifyListeners(); return false;
+    }
   }
 
   Future<bool> register(UserRole role, Map<String, dynamic> body) async {
-    _isLoading = true; _error = null; notifyListeners();
+    _isLoading = true; _error = null; _fieldErrors = {}; notifyListeners();
     ApiResult<AuthResponse> res;
     switch (role) {
       case UserRole.patient:   res = await apiService.registerPatient(body); break;
@@ -72,7 +80,14 @@ class AuthProvider extends ChangeNotifier {
       _user = _buildUser(res.data!);
       apiService.setToken(_user!.token);
       await _persist(); notifyListeners(); return true;
-    } else { _error = res.error ?? 'Registration failed.'; notifyListeners(); return false; }
+    } else {
+      _fieldErrors = res.fieldErrors;
+      // Only show the top-level banner if there are no field-level errors to show inline
+      if (_fieldErrors.isEmpty) {
+        _error = res.error ?? 'Registration failed.';
+      }
+      notifyListeners(); return false;
+    }
   }
 
   Future<void> _persist() async {
@@ -135,12 +150,13 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Updates the in-memory profile picture URL and persists it.
-  Future<void> refreshProfilePic(String url) async {
+  /// Pass null to remove the picture.
+  Future<void> refreshProfilePic(String? url) async {
     if (_user == null) return;
     _user = AppUser(
       id: _user!.id, name: _user!.name, email: _user!.email,
       role: _user!.role, token: _user!.token, refreshToken: _user!.refreshToken,
-      profilePictureUrl: url,
+      profilePictureUrl: (url == null || url.isEmpty) ? null : url,
     );
     await _persist();
     notifyListeners();
@@ -159,5 +175,5 @@ class AuthProvider extends ChangeNotifier {
     await prefs.remove('mt_pic');
   }
 
-  void clearError() { _error = null; notifyListeners(); }
+  void clearError() { _error = null; _fieldErrors = {}; notifyListeners(); }
 }

@@ -10,9 +10,13 @@
                 .IsRequired()
                 .HasMaxLength(150);
 
-            builder.Property(x => x.StationName)
+            builder.Property(x => x.DriverName)
                 .IsRequired()
                 .HasMaxLength(100);
+
+            builder.Property(x => x.DriverPhone)
+                .IsRequired()
+                .HasMaxLength(11);
 
             builder.Property(x => x.Phone)
                 .HasMaxLength(11);
@@ -23,11 +27,8 @@
             builder.Property(x => x.LicensePlate)
                 .HasMaxLength(20);
 
-            builder.Property(x => x.DriverName)
+            builder.Property(x => x.ServiceArea)
                 .HasMaxLength(100);
-
-            builder.Property(x => x.DriverPhone)
-                .HasMaxLength(11);
 
             builder.Property(x => x.Latitude)
                 .HasColumnType("float");

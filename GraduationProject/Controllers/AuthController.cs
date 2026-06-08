@@ -139,6 +139,35 @@ namespace GraduationProject.Controllers
                 : result.ToProblem();
         }
 
+        // DELETE /api/auth/profile-picture  (requires auth)
+        [HttpDelete("profile-picture")]
+        [Authorize]
+        public async Task<IActionResult> DeleteProfilePicture()
+        {
+            var email = User.FindFirst("email")?.Value
+                     ?? User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+
+            var userManager = HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByEmailAsync(email);
+            if (user is null) return Unauthorized();
+
+            // Delete the file from disk
+            if (!string.IsNullOrEmpty(user.ProfilePictureUrl))
+            {
+                var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                var folderPath  = Path.Combine(webRootPath, "profile-pictures");
+                var oldFileName = Path.GetFileName(user.ProfilePictureUrl);
+                var oldFilePath = Path.Combine(folderPath, oldFileName);
+                if (System.IO.File.Exists(oldFilePath))
+                    System.IO.File.Delete(oldFilePath);
+            }
+
+            user.ProfilePictureUrl = null;
+            await userManager.UpdateAsync(user);
+
+            return Ok(new { message = "Profile picture removed." });
+        }
+
         // GET /api/auth/me  (requires auth)
         [HttpGet("me")]
         [Authorize]

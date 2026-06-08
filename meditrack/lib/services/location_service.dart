@@ -8,7 +8,7 @@ import 'package:meditrack/services/api_service.dart';
 // LOCATION SERVICE
 // - Requests GPS permission
 // - Provides one-shot & stream position
-// - Pushes patient location to server every 30s
+// - Pushes patient location to server every 10s
 // - Pushes ambulance location every 10s when on active dispatch
 // ════════════════════════════════════════════════════════════════
 
@@ -50,12 +50,12 @@ class LocationService extends ChangeNotifier {
     }
   }
 
-  // ── Patient: push location every 30s ─────────────────────────
+  // ── Patient: push location every 10s (same as ambulance) ────
 
   void startPatientTracking(int patientId) {
     _patientTimer?.cancel();
     _pushPatientLocation(patientId);
-    _patientTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _patientTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _pushPatientLocation(patientId);
     });
   }

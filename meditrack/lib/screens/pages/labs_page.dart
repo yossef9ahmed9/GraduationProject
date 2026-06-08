@@ -9,6 +9,7 @@ import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
+import 'package:meditrack/screens/user_profile_screen.dart';
 
 class LabsPage extends StatefulWidget {
   const LabsPage({super.key});
@@ -164,22 +165,27 @@ class _LabCard extends StatelessWidget {
   final VoidCallback? onChat;
   final VoidCallback? onBook;
   const _LabCard({required this.lab, this.onChat, this.onBook});
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return AppCard(
       padding: const EdgeInsets.all(14),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 40, height: 40,
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(Icons.science_outlined, size: 20,
-              color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
-        ),
+        lab.profilePictureUrl != null && lab.profilePictureUrl!.isNotEmpty
+            ? AvatarWidget(
+                initials: lab.name.isNotEmpty ? lab.name[0].toUpperCase() : 'L',
+                size: 40, fontSize: 14,
+                photoUrl: lab.profilePictureUrl,
+              )
+            : Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.science_outlined, size: 20,
+                    color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
+              ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -201,34 +207,46 @@ class _LabCard extends StatelessWidget {
                 style: GoogleFonts.dmSans(fontSize: 11.5,
                     color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
             const SizedBox(height: 10),
-            // Action buttons — same style as DoctorsPage
-            Row(mainAxisSize: MainAxisSize.min, children: [
+            // Action buttons — full width row, no overflow
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => UserProfileScreen.lab(lab),
+                )),
+                icon: const Icon(Icons.info_outline_rounded, size: 14),
+                label: Text('Profile', style: GoogleFonts.dmSans(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              )),
               if (onChat != null) ...[
-                OutlinedButton.icon(
+                const SizedBox(width: 6),
+                Expanded(child: OutlinedButton.icon(
                   onPressed: onChat,
                   icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
                   label: Text('Chat', style: GoogleFonts.dmSans(fontSize: 12)),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(vertical: 6),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                ),
-                const SizedBox(width: 8),
+                )),
               ],
-              if (onBook != null)
-                OutlinedButton.icon(
+              if (onBook != null) ...[
+                const SizedBox(width: 6),
+                Expanded(child: OutlinedButton.icon(
                   onPressed: onBook,
                   icon: const Icon(Icons.calendar_month_outlined, size: 14),
-                  label: Text('Book Test', style: GoogleFonts.dmSans(fontSize: 12)),
+                  label: Text('Book', style: GoogleFonts.dmSans(fontSize: 12)),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(vertical: 6),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                ),
+                )),
+              ],
             ]),
           ]),
         ),

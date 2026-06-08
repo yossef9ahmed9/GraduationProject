@@ -82,7 +82,7 @@ namespace GraduationProject.Services
                 Phone         = request.Phone,
                 Address       = request.Address,
                 BirthDate     = request.BirthDate,
-                MedicalRecord = request.MedicalRecord,
+                MedicalRecord = request.MedicalRecord ?? string.Empty,
                 BloodType     = request.BloodType
             };
 
@@ -205,7 +205,7 @@ namespace GraduationProject.Services
                 Phone        = request.Phone,
                 Email        = request.Email,
                 RelationType = request.RelationType,
-                PatientId    = null,   // linked later via /api/relative-requests/{id}/approve
+                // PatientId removed — linked later via /api/relative-requests/{id}/approve
             };
 
             await _context.Relatives.AddAsync(relative, cancellationToken);
@@ -220,7 +220,7 @@ namespace GraduationProject.Services
         {
             var user = new ApplicationUser
             {
-                FullName = request.StationName,
+                FullName = request.DriverName,
                 Email    = request.Email,
                 UserName = request.Email
             };
@@ -235,17 +235,15 @@ namespace GraduationProject.Services
 
             await _userManager.AddToRoleAsync(user, "Ambulance");
 
-            // FIXED: LicensePlate, DriverName, DriverPhone are now required non-nullable
-            // fields on AmbulanceRegisterRequest — the ?? "" fallbacks are no longer needed.
             var ambulance = new Ambulance
             {
                 Email              = request.Email,
-                StationName        = request.StationName,
                 Phone              = request.Phone,
-                AvailabilityStatus = request.AvailabilityStatus,
+                AvailabilityStatus = "NotAvailable",
                 LicensePlate       = request.LicensePlate,
                 DriverName         = request.DriverName,
-                DriverPhone        = request.DriverPhone
+                DriverPhone        = request.DriverPhone,
+                ServiceArea        = request.ServiceArea
             };
 
             await _context.Ambulances.AddAsync(ambulance, cancellationToken);
@@ -398,7 +396,7 @@ namespace GraduationProject.Services
             if (doctor    != null) doctor.Name            = newName.Trim();
             if (lab       != null) lab.Name               = newName.Trim();
             if (relative  != null) relative.Name          = newName.Trim();
-            if (ambulance != null) ambulance.StationName  = newName.Trim();
+            if (ambulance != null) ambulance.DriverName  = newName.Trim();
 
             await _context.SaveChangesAsync();
             return Result.Success();

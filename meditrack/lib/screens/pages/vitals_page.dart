@@ -149,7 +149,7 @@ class _VitalsPageState extends State<VitalsPage> {
                       style: GoogleFonts.dmSans(fontSize: 13,
                           color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary),
                       items: app.patients.map((p) =>
-                          DropdownMenuItem(value: p.id, child: Text('${p.name} — #${p.id}'))).toList(),
+                          DropdownMenuItem(value: p.id, child: Text(p.name))).toList(),
                       onChanged: (id) { if (id != null) _loadVitals(id); },
                     ),
             ),

@@ -2,56 +2,31 @@
 
 namespace GraduationProject.Contracts.Authentication
 {
-    // NEW: dedicated validator for patient registration
-    // replaces the conditional When(role == "Patient") block in the old RegisterRequestValidator
     public class PatientRegisterRequestValidator : AbstractValidator<PatientRegisterRequest>
     {
         public PatientRegisterRequestValidator()
         {
-            RuleFor(x => x.FullName)
-                .NotEmpty().WithMessage("Full name is required.")
-                .MaximumLength(100);
-
-            RuleFor(x => x.Email)
-                .NotEmpty().WithMessage("Email is required.")
-                .EmailAddress().WithMessage("Invalid email format.");
-
-            RuleFor(x => x.Password)
-                .NotEmpty().WithMessage("Password is required.")
-                .MinimumLength(6).WithMessage("Password must be at least 6 characters.");
-
-            RuleFor(x => x.ConfirmPassword)
-                .NotEmpty().WithMessage("Confirm password is required.")
+            RuleFor(x => x.FullName).NotEmpty().MaximumLength(100);
+            RuleFor(x => x.Email).NotEmpty().EmailAddress();
+            RuleFor(x => x.Password).NotEmpty().MinimumLength(6);
+            RuleFor(x => x.ConfirmPassword).NotEmpty()
                 .Equal(x => x.Password).WithMessage("Passwords do not match.");
-
-            RuleFor(x => x.Gender)
-                .NotEmpty().WithMessage("Gender is required.")
-                .Must(g => g.Equals("Male", StringComparison.OrdinalIgnoreCase) ||
+            RuleFor(x => x.Phone).NotEmpty()
+                .Matches(@"^01[0-5][0-9]{8}$").WithMessage("Invalid Egyptian phone number format.");
+            RuleFor(x => x.Address).NotEmpty().MaximumLength(250);
+            RuleFor(x => x.Gender).NotEmpty()
+                .Must(g => g.Equals("Male",   StringComparison.OrdinalIgnoreCase) ||
                            g.Equals("Female", StringComparison.OrdinalIgnoreCase))
                 .WithMessage("Gender must be Male or Female.");
-
-            RuleFor(x => x.Phone)
-                .NotEmpty().WithMessage("Phone is required.")
-                .Matches(@"^01[0-5][0-9]{8}$")
-                .WithMessage("Invalid Egyptian phone number format.");
-
-            RuleFor(x => x.Address)
-                .NotEmpty().WithMessage("Address is required.")
-                .MaximumLength(250);
-
-            RuleFor(x => x.BirthDate)
-                .NotEmpty().WithMessage("Birth date is required.")
+            RuleFor(x => x.BirthDate).NotEmpty()
                 .Must(b => b < DateOnly.FromDateTime(DateTime.Today))
                 .WithMessage("Birth date must be in the past.");
-
-            RuleFor(x => x.MedicalRecord)
-                .NotEmpty().WithMessage("Medical record is required.")
-                .MaximumLength(1000);
-
-            RuleFor(x => x.BloodType)
-                .NotEmpty().WithMessage("Blood type is required.")
-                .Must(b => b is "A+" or "A-" or "B+" or "B-" or "AB+" or "AB-" or "O+" or "O-")
-                .WithMessage("Blood type must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-.");
+            RuleFor(x => x.BloodType).NotEmpty()
+                .Must(b => b is "A+" or "A-" or "B+" or "B-" or "AB+" or "AB-" or "O+" or "O-" or "Unknown")
+                .WithMessage("Invalid blood type.");
+            // MedicalRecord is optional
+            RuleFor(x => x.MedicalRecord).MaximumLength(1000)
+                .When(x => x.MedicalRecord != null);
         }
     }
 }

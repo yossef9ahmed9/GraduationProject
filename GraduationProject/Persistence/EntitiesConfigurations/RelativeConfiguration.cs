@@ -17,10 +17,7 @@
                 .IsRequired()
                 .HasMaxLength(50);
 
-            // NOTE: no OnDelete here — Cascade is set in AppDbContext
-            builder.HasOne(x => x.Patient)
-                .WithMany(x => x.Relatives)
-                .HasForeignKey(x => x.PatientId);
+            // PatientId removed — relationship is now purely via RelativePatientRequest
         }
     }
 }

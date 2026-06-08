@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using GraduationProject.Contracts.MedicalTests;
 using GraduationProject.Services.OCR;
@@ -73,9 +72,19 @@ namespace GraduationProject.Controllers
 
             if (patientId.HasValue && labId.HasValue)
             {
+                // Build pipe-separated "Name: value (Status)" string.
+                // Omit the status label when Normal so _TestTile chips stay clean.
+                // UnreadableValue entries are skipped — they have no usable value.
+                var resultStr = string.Join(" | ",
+                    analysis.Tests
+                        .Where(t => t.Status != "UnreadableValue")
+                        .Select(t => t.Status == "Normal"
+                            ? $"{t.Name}: {t.Value}"
+                            : $"{t.Name}: {t.Value} ({t.Status})"));
+
                 var request = new MedicalTestRequest(
                     testType,
-                    JsonSerializer.Serialize(analysis, new JsonSerializerOptions { WriteIndented = false }),
+                    resultStr,
                     patientId.Value,
                     labId.Value);
 

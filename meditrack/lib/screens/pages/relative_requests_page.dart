@@ -4,6 +4,7 @@ import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
+import 'package:meditrack/screens/relative_link_screen.dart';
 
 class RelativeRequestsPage extends StatefulWidget {
   const RelativeRequestsPage({super.key});

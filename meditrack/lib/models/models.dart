@@ -92,14 +92,23 @@ class ApiResult<T> {
   final T? data;
   final String? error;
   final int? statusCode;
+  /// Per-field validation errors (lowercased field name → first error message).
+  /// Populated only on 400 responses with FluentValidation errors.
+  final Map<String, String> fieldErrors;
 
-  const ApiResult._({required this.ok, this.data, this.error, this.statusCode});
+  const ApiResult._({
+    required this.ok,
+    this.data,
+    this.error,
+    this.statusCode,
+    this.fieldErrors = const {},
+  });
 
   factory ApiResult.success(T data, int code) =>
       ApiResult._(ok: true, data: data, statusCode: code);
 
-  factory ApiResult.failure(String error, int? code) =>
-      ApiResult._(ok: false, error: error, statusCode: code);
+  factory ApiResult.failure(String error, int? code, {Map<String, String> fieldErrors = const {}}) =>
+      ApiResult._(ok: false, error: error, statusCode: code, fieldErrors: fieldErrors);
 }
 
 // ── Paginated Response wrapper ────────────────────────────────
@@ -754,12 +763,12 @@ class OcrScanResponse {
 class AmbulanceResponse {
   final int id;
   final String email;
-  final String stationName;
-  final String phone;
-  final String availabilityStatus;
-  final String licensePlate;
-  final String driverName;
+  final String driverName;   // ← primary display name (replaces stationName)
   final String driverPhone;
+  final String licensePlate;
+  final String phone;        // ambulance unit phone
+  final String availabilityStatus;
+  final String? serviceArea; // optional zone label (e.g. "Nasr City")
   final double? latitude;
   final double? longitude;
   final String? lastLocationUpdate;
@@ -768,12 +777,12 @@ class AmbulanceResponse {
   const AmbulanceResponse({
     required this.id,
     required this.email,
-    required this.stationName,
-    required this.phone,
-    required this.availabilityStatus,
-    required this.licensePlate,
     required this.driverName,
     required this.driverPhone,
+    required this.licensePlate,
+    required this.phone,
+    required this.availabilityStatus,
+    this.serviceArea,
     this.latitude,
     this.longitude,
     this.lastLocationUpdate,
@@ -781,18 +790,18 @@ class AmbulanceResponse {
   });
 
   factory AmbulanceResponse.fromJson(Map<String, dynamic> j) => AmbulanceResponse(
-    id: j['id'] as int? ?? 0,
-    email: j['email'] as String? ?? '',
-    stationName: j['stationName'] as String? ?? '',
-    phone: j['phone'] as String? ?? '',
-    availabilityStatus: j['availabilityStatus'] as String? ?? '',
-    licensePlate: j['licensePlate'] as String? ?? '',
-    driverName: j['driverName'] as String? ?? '',
-    driverPhone: j['driverPhone'] as String? ?? '',
-    latitude: (j['latitude'] as num?)?.toDouble(),
-    longitude: (j['longitude'] as num?)?.toDouble(),
-    lastLocationUpdate: j['lastLocationUpdate'] as String?,
-    activeDispatchCount: j['activeDispatchCount'] as int? ?? 0,
+    id:                  j['id']                  as int?    ?? 0,
+    email:               j['email']               as String? ?? '',
+    driverName:          j['driverName']          as String? ?? '',
+    driverPhone:         j['driverPhone']         as String? ?? '',
+    licensePlate:        j['licensePlate']        as String? ?? '',
+    phone:               j['phone']               as String? ?? '',
+    availabilityStatus:  j['availabilityStatus']  as String? ?? '',
+    serviceArea:         j['serviceArea']         as String?,
+    latitude:            (j['latitude']  as num?)?.toDouble(),
+    longitude:           (j['longitude'] as num?)?.toDouble(),
+    lastLocationUpdate:  j['lastLocationUpdate']  as String?,
+    activeDispatchCount: j['activeDispatchCount'] as int?    ?? 0,
   );
 }
 
@@ -1047,7 +1056,7 @@ class PatientLocationResponse {
 
 class AmbulanceLocationResponse {
   final int ambulanceId;
-  final String stationName;
+  final String driverName;   // ← was stationName — now matches backend
   final String availabilityStatus;
   final double? latitude;
   final double? longitude;
@@ -1056,7 +1065,7 @@ class AmbulanceLocationResponse {
 
   const AmbulanceLocationResponse({
     required this.ambulanceId,
-    required this.stationName,
+    required this.driverName,
     required this.availabilityStatus,
     this.latitude,
     this.longitude,
@@ -1066,12 +1075,12 @@ class AmbulanceLocationResponse {
 
   factory AmbulanceLocationResponse.fromJson(Map<String, dynamic> j) =>
       AmbulanceLocationResponse(
-        ambulanceId:           j['ambulanceId'] as int? ?? 0,
-        stationName:           j['stationName'] as String? ?? '',
-        availabilityStatus:    j['availabilityStatus'] as String? ?? '',
-        latitude:              (j['latitude'] as num?)?.toDouble(),
+        ambulanceId:           j['ambulanceId']           as int?    ?? 0,
+        driverName:            j['driverName']            as String? ?? '',
+        availabilityStatus:    j['availabilityStatus']    as String? ?? '',
+        latitude:              (j['latitude']  as num?)?.toDouble(),
         longitude:             (j['longitude'] as num?)?.toDouble(),
-        lastLocationUpdate:    j['lastLocationUpdate'] as String?,
+        lastLocationUpdate:    j['lastLocationUpdate']    as String?,
         distanceFromPatientKm: (j['distanceFromPatientKm'] as num?)?.toDouble(),
       );
 }

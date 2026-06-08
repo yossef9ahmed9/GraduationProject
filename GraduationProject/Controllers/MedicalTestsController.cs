@@ -47,12 +47,21 @@ namespace GraduationProject.Controllers
 
             if (User.IsInRole("Relative"))
             {
-                var relative = await _context.Relatives.AsNoTracking()
+                var relative = await _context.Relatives
+                    .AsNoTracking()
+                    .Include(r => r.PatientRequests)
                     .FirstOrDefaultAsync(r => r.Email == Email(), cancellationToken);
-                if (relative?.PatientId is null)
+
+                var approvedIds = relative?.PatientRequests
+                    .Where(req => req.Status == "Approved")
+                    .Select(req => req.PatientId)
+                    .ToList() ?? new List<int>();
+
+                if (!approvedIds.Any())
                     return Ok(new { items = Array.Empty<object>() });
-                return Ok(await _service.GetByPatientAsync(
-                    relative.PatientId.Value, pageNumber, pageSize, cancellationToken));
+
+                return Ok(await _service.GetByPatientIdsAsync(
+                    approvedIds, pageNumber, pageSize, cancellationToken));
             }
 
             if (User.IsInRole("Doctor"))

@@ -1,18 +1,17 @@
 ﻿namespace GraduationProject.Contracts.Authentication
 {
-    // NEW: dedicated request model for patient registration only
-    // replaces the old giant RegisterRequest for the patient role
-    public record PatientRegisterRequest
-   (
-       string FullName,
-       string Email,
-       string Password,
-       string ConfirmPassword,
-       string Gender,
-       string Phone,
-       string Address,
-       DateOnly BirthDate,
-       string MedicalRecord,
-       string BloodType
-   );
+    public record PatientRegisterRequest(
+        string   FullName,
+        string   Email,
+        string   Password,
+        string   ConfirmPassword,
+        string   Phone,
+        string   Address,
+        string   Gender,
+        DateOnly BirthDate,
+        string   BloodType,
+        string?  MedicalRecord   = null,   // ← now optional
+        string?  ChronicDiseases = null,
+        string?  Allergies       = null
+    );
 }

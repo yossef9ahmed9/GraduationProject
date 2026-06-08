@@ -36,8 +36,11 @@ namespace GraduationProject.Services
                                           f.PatientId == patientId),
                                       cancellationToken),
                 "Relative" => await _context.Relatives.AsNoTracking()
+                                  .Include(r => r.PatientRequests)
                                   .AnyAsync(r => r.Email == callerEmail &&
-                                      r.PatientId == patientId,
+                                      r.PatientRequests.Any(req =>
+                                          req.PatientId == patientId &&
+                                          req.Status == "Approved"),
                                       cancellationToken),
                 _ => true  // Admin, Lab
             };

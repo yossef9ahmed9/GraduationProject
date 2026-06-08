@@ -54,12 +54,7 @@ namespace GraduationProject.Presistence
                 .HasForeignKey(s => s.PatientId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Patient deleted → delete their Relatives
-            modelBuilder.Entity<Relative>()
-                .HasOne(r => r.Patient)
-                .WithMany(p => p.Relatives)
-                .HasForeignKey(r => r.PatientId)
-                .OnDelete(DeleteBehavior.Cascade);
+            // Relative.PatientId removed — relationship is now purely via PatientRequests
 
             // Patient deleted → delete their MedicalTests
             modelBuilder.Entity<MedicalTest>()
@@ -120,10 +115,7 @@ namespace GraduationProject.Presistence
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
-            // Make Relative.PatientId nullable
-            modelBuilder.Entity<Relative>()
-                .Property(r => r.PatientId)
-                .IsRequired(false);
+            // Make Relative.PatientId nullable — REMOVED (PatientId dropped from Relative entity)
 
             // User deleted → delete their RefreshTokens
             modelBuilder.Entity<RefreshToken>()

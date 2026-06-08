@@ -23,7 +23,6 @@
 
         public string? FcmToken { get; set; }
 
-        public ICollection<Relative> Relatives { get; set; } = new List<Relative>();
         public ICollection<Sensor> Sensors { get; set; } = new List<Sensor>();
         public ICollection<MedicalTest> MedicalTests { get; set; } = new List<MedicalTest>();
         public ICollection<FollowUp> FollowUps { get; set; } = new List<FollowUp>();

@@ -9,6 +9,7 @@ import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/theme_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
+import 'package:meditrack/widgets/map_location_picker.dart';
 import 'package:meditrack/services/location_service.dart';
 import 'package:meditrack/screens/login_screen.dart';
 import 'package:meditrack/screens/pages/change_name_page.dart';
@@ -33,15 +34,19 @@ class _ProfilePageState extends State<ProfilePage> {
   // Doctor clinic controllers
   final _clinicNameCtrl    = TextEditingController();
   final _clinicAddressCtrl = TextEditingController();
-  final _clinicLatCtrl     = TextEditingController();
-  final _clinicLngCtrl     = TextEditingController();
+
+  // Doctor clinic location (map picker)
+  double? _clinicLat;
+  double? _clinicLng;
 
   // Lab location controllers
   final _labNameCtrl     = TextEditingController();
   final _labLocationCtrl = TextEditingController();
   final _labPhoneCtrl    = TextEditingController();
-  final _labLatCtrl      = TextEditingController();
-  final _labLngCtrl      = TextEditingController();
+
+  // Lab location (map picker)
+  double? _labLat;
+  double? _labLng;
 
   bool _doctorFieldsLoaded = false;
   bool _labFieldsLoaded    = false;
@@ -50,8 +55,8 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_doctorFieldsLoaded) return;
     _clinicNameCtrl.text    = d.clinicName    ?? '';
     _clinicAddressCtrl.text = d.clinicAddress ?? '';
-    _clinicLatCtrl.text     = d.clinicLatitude  != null ? '${d.clinicLatitude}'  : '';
-    _clinicLngCtrl.text     = d.clinicLongitude != null ? '${d.clinicLongitude}' : '';
+    _clinicLat = d.clinicLatitude;
+    _clinicLng = d.clinicLongitude;
     _doctorFieldsLoaded = true;
   }
 
@@ -60,50 +65,87 @@ class _ProfilePageState extends State<ProfilePage> {
     _labNameCtrl.text     = l.name;
     _labLocationCtrl.text = l.location;
     _labPhoneCtrl.text    = l.phone;
-    _labLatCtrl.text      = l.latitude  != null ? '${l.latitude}'  : '';
-    _labLngCtrl.text      = l.longitude != null ? '${l.longitude}' : '';
+    _labLat = l.latitude;
+    _labLng = l.longitude;
     _labFieldsLoaded = true;
   }
 
   @override
   void dispose() {
     _clinicNameCtrl.dispose(); _clinicAddressCtrl.dispose();
-    _clinicLatCtrl.dispose();  _clinicLngCtrl.dispose();
     _labNameCtrl.dispose();    _labLocationCtrl.dispose();
-    _labPhoneCtrl.dispose();   _labLatCtrl.dispose(); _labLngCtrl.dispose();
+    _labPhoneCtrl.dispose();
     super.dispose();
   }
 
   // ── Profile picture ──────────────────────────────────────────
   Future<void> _pickProfilePicture() async {
-    final choice = await showModalBottomSheet<ImageSource>(
+    final hasPic = context.read<AuthProvider>().user?.profilePictureUrl?.isNotEmpty == true;
+    final choice = await showModalBottomSheet<dynamic>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _PicSourceSheet(),
+      builder: (_) => _PicSourceSheet(hasPicture: hasPic),
     );
     if (choice == null) return;
 
+    // User chose to delete
+    if (choice == 'delete') {
+      await _deleteProfilePicture();
+      return;
+    }
+
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: choice, imageQuality: 85, maxWidth: 800);
+    final picked = await picker.pickImage(source: choice as ImageSource, imageQuality: 85, maxWidth: 800);
     if (picked == null) return;
 
     setState(() => _uploadingPic = true);
     final bytes = await picked.readAsBytes();
 
-    // Evict old image from cache so the new one loads immediately
-    final auth = context.read<AuthProvider>();
-    if (auth.user?.profilePictureUrl != null) {
-      await CachedNetworkImage.evictFromCache(
-          '$_picBase${auth.user!.profilePictureUrl}');
+    // Evict OLD image from every possible cache key before uploading
+    final auth   = context.read<AuthProvider>();
+    final oldPic = auth.user?.profilePictureUrl;
+    if (oldPic != null && oldPic.isNotEmpty) {
+      final oldFull = '$_picBase$oldPic';
+      await CachedNetworkImage.evictFromCache(oldPic);
+      await CachedNetworkImage.evictFromCache(oldFull);
     }
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
 
     final res = await apiService.uploadProfilePicture(bytes, picked.name);
     if (!mounted) return;
     if (res.ok && res.data != null) {
       await context.read<AuthProvider>().refreshProfilePic(res.data!);
+      final app = context.read<AppProvider>();
+      await app.refreshPatients(auth.role);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(res.error ?? 'Failed to upload picture.')));
+    }
+    setState(() => _uploadingPic = false);
+  }
+
+  Future<void> _deleteProfilePicture() async {
+    setState(() => _uploadingPic = true);
+    final auth = context.read<AuthProvider>();
+    final oldPic = auth.user?.profilePictureUrl;
+    if (oldPic != null && oldPic.isNotEmpty) {
+      final oldFull = '$_picBase$oldPic';
+      await CachedNetworkImage.evictFromCache(oldPic);
+      await CachedNetworkImage.evictFromCache(oldFull);
+    }
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+
+    final res = await apiService.deleteProfilePicture();
+    if (!mounted) return;
+    if (res.ok) {
+      await auth.refreshProfilePic(''); // clears picture from auth state
+      final app = context.read<AppProvider>();
+      await app.refreshPatients(auth.role);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res.error ?? 'Failed to remove picture.')));
     }
     setState(() => _uploadingPic = false);
   }
@@ -120,10 +162,8 @@ class _ProfilePageState extends State<ProfilePage> {
         'clinicName':    _clinicNameCtrl.text.trim(),
       if (_clinicAddressCtrl.text.trim().isNotEmpty)
         'clinicAddress': _clinicAddressCtrl.text.trim(),
-      if (_clinicLatCtrl.text.trim().isNotEmpty)
-        'clinicLatitude':  double.tryParse(_clinicLatCtrl.text.trim()),
-      if (_clinicLngCtrl.text.trim().isNotEmpty)
-        'clinicLongitude': double.tryParse(_clinicLngCtrl.text.trim()),
+      if (_clinicLat != null) 'clinicLatitude':  _clinicLat,
+      if (_clinicLng != null) 'clinicLongitude': _clinicLng,
     };
     final res = await apiService.updateDoctor(doc.id, body);
     if (res.ok && mounted) {
@@ -143,10 +183,8 @@ class _ProfilePageState extends State<ProfilePage> {
       'name':     _labNameCtrl.text.trim().isNotEmpty ? _labNameCtrl.text.trim() : lab.name,
       'location': _labLocationCtrl.text.trim().isNotEmpty ? _labLocationCtrl.text.trim() : lab.location,
       'phone':    _labPhoneCtrl.text.trim().isNotEmpty ? _labPhoneCtrl.text.trim() : lab.phone,
-      if (_labLatCtrl.text.trim().isNotEmpty)
-        'latitude':  double.tryParse(_labLatCtrl.text.trim()),
-      if (_labLngCtrl.text.trim().isNotEmpty)
-        'longitude': double.tryParse(_labLngCtrl.text.trim()),
+      if (_labLat != null) 'latitude':  _labLat,
+      if (_labLng != null) 'longitude': _labLng,
     };
     final res = await apiService.updateLab(lab.id, body);
     if (res.ok && mounted) {
@@ -206,10 +244,24 @@ class _ProfilePageState extends State<ProfilePage> {
     if (doctor != null) _loadDoctorFields(doctor);
     if (lab    != null) _loadLabFields(lab);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Center(
-        child: ConstrainedBox(
+    return RefreshIndicator(
+      onRefresh: () async {
+        final auth = context.read<AuthProvider>();
+        final app  = context.read<AppProvider>();
+        await Future.wait([
+          app.refreshPatients(auth.role),
+          app.refreshDoctors(),
+          app.refreshLabs(),
+        ]);
+        // reset field-loaded flags so editable fields reload fresh values
+        _doctorFieldsLoaded = false;
+        _labFieldsLoaded    = false;
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
 
@@ -348,6 +400,10 @@ class _ProfilePageState extends State<ProfilePage> {
                       const SizedBox(height: 4),
                       _InfoRow('Allergies', patient.allergies!),
                     ],
+                    if (patient.medicalRecord.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _InfoRow('Medical Record', patient.medicalRecord),
+                    ],
                   ]),
                 ),
               ])),
@@ -363,12 +419,12 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     _EditField('Clinic Name',    _clinicNameCtrl,    isDark, hint: 'e.g. Al-Noor Clinic'),
                     _EditField('Clinic Address', _clinicAddressCtrl, isDark, hint: 'e.g. 12 Tahrir St, Cairo'),
-                    _EditField('Latitude',       _clinicLatCtrl,     isDark,
-                        hint: 'e.g. 30.0444',
-                        kb: const TextInputType.numberWithOptions(decimal: true, signed: true)),
-                    _EditField('Longitude',      _clinicLngCtrl,     isDark,
-                        hint: 'e.g. 31.2357',
-                        kb: const TextInputType.numberWithOptions(decimal: true, signed: true)),
+                    StaticLocationPickerField(
+                      label:      'Clinic Location on Map',
+                      initialLat: _clinicLat,
+                      initialLng: _clinicLng,
+                      onPicked:   (lat, lng) => setState(() { _clinicLat = lat; _clinicLng = lng; }),
+                    ),
                     const SizedBox(height: 4),
                     SizedBox(width: double.infinity,
                       child: ElevatedButton(
@@ -395,12 +451,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     _EditField('Lab Name',  _labNameCtrl,     isDark),
                     _EditField('Location',  _labLocationCtrl, isDark, hint: 'e.g. Nasr City, Cairo'),
                     _EditField('Phone',     _labPhoneCtrl,    isDark, kb: TextInputType.phone),
-                    _EditField('Latitude',  _labLatCtrl,      isDark,
-                        hint: 'e.g. 30.0444',
-                        kb: const TextInputType.numberWithOptions(decimal: true, signed: true)),
-                    _EditField('Longitude', _labLngCtrl,      isDark,
-                        hint: 'e.g. 31.2357',
-                        kb: const TextInputType.numberWithOptions(decimal: true, signed: true)),
+                    StaticLocationPickerField(
+                      label:      'Lab Location on Map',
+                      initialLat: _labLat,
+                      initialLng: _labLng,
+                      onPicked:   (lat, lng) => setState(() { _labLat = lat; _labLng = lng; }),
+                    ),
                     const SizedBox(height: 4),
                     SizedBox(width: double.infinity,
                       child: ElevatedButton(
@@ -479,6 +535,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ]),
         ),
       ),
+    ),
     );
   }
 
@@ -488,15 +545,11 @@ class _ProfilePageState extends State<ProfilePage> {
     if (picUrl == null) return _initialsCircle(user, isDark);
 
     final fullUrl = picUrl.startsWith('http') ? picUrl : '$_picBase$picUrl';
-    // Append a cache-buster so CachedNetworkImage always re-fetches after a new upload.
-    // The timestamp is embedded in the URL path itself (from the server), so this
-    // query param is just an extra safety net for the image cache.
-    final bustUrl = '$fullUrl?v=${Uri.encodeComponent(picUrl.replaceAll(RegExp(r'[^0-9]'), ''))}';
 
     return ClipOval(
       child: CachedNetworkImage(
-        imageUrl: bustUrl,
-        cacheKey: picUrl, // key changes when URL path changes (new upload = new filename)
+        imageUrl: fullUrl,
+        cacheKey: fullUrl,
         width: 60, height: 60,
         fit: BoxFit.cover,
         placeholder: (_, __) => _initialsCircle(user, isDark),
@@ -519,6 +572,9 @@ class _ProfilePageState extends State<ProfilePage> {
 // ── Profile picture source picker ────────────────────────────
 
 class _PicSourceSheet extends StatelessWidget {
+  final bool hasPicture;
+  const _PicSourceSheet({this.hasPicture = false});
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -574,6 +630,26 @@ class _PicSourceSheet extends StatelessWidget {
                   color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
           onTap: () => Navigator.of(context).pop(ImageSource.gallery),
         ),
+        if (hasPicture) ...[
+          ListTile(
+            leading: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.delete_outline_rounded, size: 20,
+                  color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt),
+            ),
+            title: Text('Remove Photo',
+                style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w500,
+                    color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)),
+            subtitle: Text('Delete your current picture',
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+            onTap: () => Navigator.of(context).pop('delete'),
+          ),
+        ],
         const SizedBox(height: 4),
         SizedBox(
           width: double.infinity,
