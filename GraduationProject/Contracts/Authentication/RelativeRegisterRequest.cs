@@ -7,6 +7,6 @@
         string Password,
         string ConfirmPassword,
         string Phone,
-        string RelationType
+        string? RelationType = "Family"
     );
 }

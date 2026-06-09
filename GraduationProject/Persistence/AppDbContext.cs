@@ -19,6 +19,7 @@ namespace GraduationProject.Presistence
         public DbSet<LabAppointment> LabAppointments { get; set; }
         public DbSet<ChatMessage> ChatMessages { get; set; }
         public DbSet<RelativePatientRequest> RelativePatientRequests { get; set; }
+        public DbSet<MedicalRecordEntry> MedicalRecordEntries { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -94,6 +95,23 @@ namespace GraduationProject.Presistence
 
                 modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
             }
+
+            // MedicalRecordEntry — history of all medical record changes with author info
+            modelBuilder.Entity<MedicalRecordEntry>(b =>
+            {
+                b.HasKey(x => x.Id);
+                b.Property(x => x.AuthorEmail).IsRequired().HasMaxLength(200);
+                b.Property(x => x.AuthorName).IsRequired().HasMaxLength(100);
+                b.Property(x => x.AuthorRole).IsRequired().HasMaxLength(50);
+                b.Property(x => x.MedicalRecord).HasMaxLength(2000);
+                b.Property(x => x.ChronicDiseases).HasMaxLength(500);
+                b.Property(x => x.Allergies).HasMaxLength(500);
+                b.Property(x => x.BloodType).HasMaxLength(10);
+                b.HasOne(x => x.Patient)
+                    .WithMany()
+                    .HasForeignKey(x => x.PatientId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
 
             // RelativePatientRequest configuration
             modelBuilder.Entity<RelativePatientRequest>(b =>

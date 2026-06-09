@@ -204,7 +204,7 @@ namespace GraduationProject.Services
                 Name         = request.FullName,
                 Phone        = request.Phone,
                 Email        = request.Email,
-                RelationType = request.RelationType,
+                RelationType = request.RelationType ?? "Family",
                 // PatientId removed — linked later via /api/relative-requests/{id}/approve
             };
 

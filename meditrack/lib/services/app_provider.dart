@@ -192,8 +192,8 @@ class AppProvider extends ChangeNotifier {
     if (res.ok) { vitals = res.data ?? []; notifyListeners(); }
   }
 
-  Future<void> refreshDispatches() async {
-    final res = await apiService.getAllDispatches();
+  Future<void> refreshDispatches({UserRole? role, String? myEmail}) async {
+    final res = await apiService.getAllDispatches(pageSize: 100);
     if (res.ok) {
       dispatches = res.data ?? [];
       loadError = null;
@@ -301,6 +301,12 @@ class AppProvider extends ChangeNotifier {
 
   List<EmergencyDispatchResponse> get activeDispatches =>
       dispatches.where((d) => d.isActive).toList();
+
+  /// For Relative role — only dispatches where patientId is in their linked patients list
+  List<EmergencyDispatchResponse> dispatchesForMyPatients() {
+    final myIds = patients.map((p) => p.id).toSet();
+    return dispatches.where((d) => myIds.contains(d.patientId)).toList();
+  }
 
   List<EmergencyDispatchResponse> dispatchesForPatient(int patientId) =>
       dispatches.where((d) => d.patientId == patientId).toList();

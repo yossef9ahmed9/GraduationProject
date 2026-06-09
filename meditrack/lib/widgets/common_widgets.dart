@@ -157,26 +157,31 @@ class StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.4 : 0.04), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.04), blurRadius: 6)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label.toUpperCase(), maxLines: 2, overflow: TextOverflow.ellipsis,
+          Text(label.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis,
               style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w700,
               color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
           const SizedBox(height: 4),
-          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.dmMono(fontSize: 24, fontWeight: FontWeight.w600,
-              color: valueColor ?? (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value,
+                style: GoogleFonts.dmMono(fontSize: 24, fontWeight: FontWeight.w600,
+                color: valueColor ?? (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
+          ),
           if (subtitle != null) ...[
             const SizedBox(height: 2),
-            Text(subtitle!, maxLines: 2, overflow: TextOverflow.ellipsis,
+            Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.dmSans(fontSize: 10.5, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
           ],
         ],
@@ -197,22 +202,30 @@ class VitalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.4 : 0.04), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.04), blurRadius: 6)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label.toUpperCase(), style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+          Text(label.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.dmSans(fontSize: 10, fontWeight: FontWeight.w600,
               color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary, letterSpacing: 0.04)),
           const SizedBox(height: 4),
-          Text(value, style: GoogleFonts.dmMono(fontSize: 24, fontWeight: FontWeight.w600,
-              color: valueColor ?? (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary), letterSpacing: -0.5)),
-          Text(unit, style: GoogleFonts.dmSans(fontSize: 11, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value,
+                style: GoogleFonts.dmMono(fontSize: 22, fontWeight: FontWeight.w600,
+                color: valueColor ?? (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary), letterSpacing: -0.5)),
+          ),
+          Text(unit, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.dmSans(fontSize: 10, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
         ],
       ),
     );

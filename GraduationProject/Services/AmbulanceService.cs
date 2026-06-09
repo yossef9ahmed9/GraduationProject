@@ -78,6 +78,29 @@ namespace GraduationProject.Services
             return Result.Success(ambulance);
         }
 
+        public async Task<Result<AmbulanceResponse>> GetByEmailAsync(
+            string email,
+            CancellationToken cancellationToken = default)
+        {
+            var ambulance = await _context.Ambulances
+                .AsNoTracking()
+                .Where(a => a.Email == email && !a.IsDeleted)
+                .Select(a => new AmbulanceResponse(
+                    a.Id, a.Email, a.DriverName, a.DriverPhone, a.LicensePlate,
+                    a.Phone, a.AvailabilityStatus, a.ServiceArea,
+                    a.Latitude, a.Longitude, a.LastLocationUpdate,
+                    a.EmergencyDispatches.Count(d =>
+                        d.Status != "Resolved" && d.Status != "Cancelled")))
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (ambulance is null)
+                return Result.Failure<AmbulanceResponse>(new Error(
+                    "Ambulance.NotFound", "Ambulance not found.",
+                    StatusCodes.Status404NotFound));
+
+            return Result.Success(ambulance);
+        }
+
         public async Task<PagedResponse<AmbulanceDispatchSummary>> GetDispatchesAsync(
             int id, string? callerEmail, bool isAmbulanceRole,
             int pageNumber = 1, int pageSize = 10,

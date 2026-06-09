@@ -108,6 +108,22 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  Future<void> _reloadHistory() async {
+    final auth  = context.read<AuthProvider>();
+    final token = auth.user?.token ?? '';
+    final history = await chatService.getHistoryWithToken(widget.otherEmail, token, _myEmail);
+    if (!mounted) return;
+    setState(() {
+      _messages.clear();
+      _seenIds.clear();
+      for (final m in history) {
+        if (m.id != 0) _seenIds.add(m.id);
+        _messages.add(_Msg.fromChat(m, _myEmail));
+      }
+    });
+    _scrollToBottom();
+  }
+
   Future<void> _send() async {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty) return;
@@ -168,7 +184,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   context: context,
                   builder: (_) => AlertDialog(
                     title: const Text('Clear conversation'),
-                    content: const Text('Delete all messages for both sides?'),
+                    content: const Text('Clear all messages on your side only?'),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
                       TextButton(onPressed: () => Navigator.pop(context, true),
@@ -176,8 +192,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                   ),
                 );
-                if (confirm == true) {
-                  await apiService.clearConversationForEveryone(widget.otherEmail);
+                if (confirm == true && mounted) {
+                  await apiService.clearConversation(widget.otherEmail);
                   setState(() => _messages.clear());
                 }
               }
@@ -255,7 +271,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (confirm == true && mounted) {
                           final res = await apiService.deleteMessageForEveryone(msg.id);
                           if (res.ok && mounted) {
-                            setState(() => _messages.removeWhere((m) => m.id == msg.id));
+                            await _reloadHistory();
                           }
                         }
                       }

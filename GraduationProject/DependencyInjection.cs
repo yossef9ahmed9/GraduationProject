@@ -40,6 +40,7 @@ namespace GraduationProject
             services.AddScoped<IDispatchRequestService, DispatchRequestService>();
             services.AddScoped<IAmbulanceService, AmbulanceService>();
             services.AddScoped<IPatientProgressService, PatientProgressService>();
+            services.AddScoped<IMedicalRecordService, MedicalRecordService>();
             // NEW: AI heart-risk model
             services.AddScoped<IHeartRiskService, HeartRiskService>();
             services.AddHttpClient();

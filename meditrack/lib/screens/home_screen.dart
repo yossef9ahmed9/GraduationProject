@@ -21,6 +21,7 @@ import 'package:meditrack/screens/pages/ambulances_page.dart';
 import 'package:meditrack/screens/pages/profile_page.dart';
 import 'package:meditrack/screens/pages/notifications_page.dart';
 import 'package:meditrack/screens/pages/lab_request_page.dart';
+import 'package:meditrack/screens/pages/patient_file_page.dart';
 import 'package:meditrack/screens/pages/progress_page.dart';
 import 'package:meditrack/screens/pages/relative_requests_page.dart';
 import 'package:meditrack/screens/pages/relative_chat_page.dart';
@@ -40,7 +41,7 @@ const _patientNav = [
   _NavItem('doctors',      'Doctors',      Icons.medical_services_outlined),
   _NavItem('labs',         'Labs',         Icons.science_outlined),
   _NavItem('vitals',       'My Vitals',    Icons.monitor_heart_outlined,   section: 'Health'),
-  _NavItem('progress',     'My Progress',  Icons.show_chart_rounded),
+  _NavItem('patient-file', 'Health File',  Icons.folder_open_rounded),
   _NavItem('tests',        'My Tests',     Icons.description_outlined),
   _NavItem('followups',    'Follow-ups',   Icons.assignment_outlined),
   _NavItem('requests',     'Link Requests',Icons.person_add_outlined),
@@ -48,13 +49,13 @@ const _patientNav = [
   _NavItem('profile',      'My Account',   Icons.person_outline,           section: 'Settings'),
 ];
 const _doctorNav = [
-  _NavItem('dashboard',  'Home',              Icons.home_outlined,       section: 'Main'),
-  _NavItem('patients',   'My Patients',      Icons.people_outline),
-  _NavItem('vitals',     'Vital Signs',      Icons.monitor_heart_outlined),
-  _NavItem('progress',   'Patient Progress', Icons.show_chart_rounded),
-  _NavItem('followups',  'Follow-ups',       Icons.assignment_outlined, section: 'Medical'),
-  _NavItem('tests',      'Test Results',     Icons.description_outlined),
-  _NavItem('profile',    'My Account',       Icons.person_outline,      section: 'Settings'),
+  _NavItem('dashboard',    'Home',              Icons.home_outlined,       section: 'Main'),
+  _NavItem('patients',     'My Patients',      Icons.people_outline),
+  _NavItem('vitals',       'Vital Signs',      Icons.monitor_heart_outlined),
+  _NavItem('patient-file', 'Patient File',     Icons.folder_open_rounded),
+  _NavItem('followups',    'Follow-ups',       Icons.assignment_outlined, section: 'Medical'),
+  _NavItem('tests',        'Test Results',     Icons.description_outlined),
+  _NavItem('profile',      'My Account',       Icons.person_outline,      section: 'Settings'),
 ];
 const _labNav = [
   _NavItem('dashboard', 'Dashboard',   Icons.grid_view_rounded,   section: 'Main'),
@@ -66,7 +67,7 @@ const _relativeNav = [
   _NavItem('dashboard',       'Home',           Icons.home_outlined,            section: 'Main'),
   _NavItem('my-patients',     'My Patients',    Icons.people_outline),
   _NavItem('vitals',          'Patient Vitals', Icons.monitor_heart_outlined),
-  _NavItem('progress',        'Progress',       Icons.show_chart_rounded),
+  _NavItem('patient-file',    'Health File',    Icons.folder_open_rounded),
   _NavItem('followups',       'Follow-ups',     Icons.assignment_outlined),
   _NavItem('relative-chat',   'Care Team',      Icons.chat_bubble_outline_rounded),
   _NavItem('ambulances',      'Ambulances',     Icons.emergency_outlined,       section: 'Emergency'),
@@ -114,6 +115,7 @@ Widget _buildPage(String id, UserRole role) {
     case 'ambulances': return const AmbulancesPage();
     case 'profile':    return const ProfilePage();
     case 'progress':   return const ProgressPage();
+    case 'patient-file': return const PatientFilePage();
     case 'requests':      return const RelativeRequestsPage();
     case 'my-patients':   return const RelativePatientsPage();
     case 'relative-chat': return const RelativeChatPage();
@@ -130,6 +132,7 @@ String _pageTitle(String id) {
     'profile': 'My Account', 'lab-request': 'Lab Tests',
     'my-patients': 'My Patients', 'requests': 'Relative Requests',
     'relative-chat': 'Care Team',
+    'patient-file': 'Health File', 'progress': 'Progress',
   };
   return titles[id] ?? id;
 }

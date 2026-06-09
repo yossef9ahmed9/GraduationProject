@@ -141,7 +141,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'password':        _passCtrl.text,
           'confirmPassword': _cpassCtrl.text,
           'phone':           _phoneCtrl.text.trim(),
-          'relationType':    _relationCtrl.text.trim(),
+          'relationType': _relationCtrl.text.trim().isEmpty
+              ? 'Family'
+              : _relationCtrl.text.trim(),
         };
 
       case UserRole.ambulance:
@@ -487,7 +489,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         text('Password',      _passCtrl,    obscure: true);
         text('Confirm',       _cpassCtrl,   obscure: true);
         text('Phone',         _phoneCtrl,   kb: TextInputType.phone);
-        text('Relation Type', _relationCtrl,hint: 'Parent / Spouse / Sibling');
+        text('Relation Type', _relationCtrl, hint: 'Default: Family (optional)');
         fields.add(Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(

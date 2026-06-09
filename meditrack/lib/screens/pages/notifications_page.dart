@@ -6,6 +6,7 @@ import 'package:meditrack/services/notification_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
+import 'package:meditrack/screens/ambulance_tracking_screen.dart';
 
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
@@ -77,21 +78,29 @@ class _NotifTile extends StatelessWidget {
 
     return InkWell(
       onTap: () {
+        notifPr.markRead(notif.id);
         if (notif.type == NotifType.message &&
             notif.chatEmail != null &&
             notif.chatName  != null) {
           debugPrint('[NotifTile] Opening chat — chatEmail=${notif.chatEmail} chatName=${notif.chatName}');
-          // Remove only this notification
           notifPr.remove(notif.id);
-          // Navigate to chat — history loads automatically in ChatScreen
           Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => ChatScreen(
               otherEmail: notif.chatEmail!,
               otherName:  notif.chatName!,
             ),
           ));
-        } else {
-          notifPr.markRead(notif.id);
+        } else if ((notif.type == NotifType.emergency ||
+                    notif.type == NotifType.dispatch) &&
+                   notif.patientId != null) {
+          // Emergency / dispatch → open ambulance tracking map
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => AmbulanceTrackingScreen(
+              patientId:   notif.patientId!,
+              patientName: notif.title,
+              dispatchId:  notif.dispatchId,
+            ),
+          ));
         }
       },
       child: Container(

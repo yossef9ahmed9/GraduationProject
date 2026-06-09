@@ -618,6 +618,48 @@ class ApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
+  // PATIENT FILE  — /api/patient-file  &  /api/medical-record
+  // ════════════════════════════════════════════════════════════════
+
+  /// GET /api/patient-file/{patientId}
+  /// Returns vitals, record history, prescriptions, and lab tests in one call.
+  Future<ApiResult<Map<String, dynamic>>> getPatientFile(int patientId) =>
+      _get('/patient-file/$patientId', (j) => j as Map<String, dynamic>);
+
+  /// GET /api/medical-record/{patientId}/history
+  Future<ApiResult<List<dynamic>>> getMedicalRecordHistory(int patientId) =>
+      _get('/medical-record/$patientId/history', (j) => j as List<dynamic>);
+
+  /// PUT /api/medical-record/{patientId}
+  /// Doctor / Patient can update the medical record.
+  Future<ApiResult<bool>> updateMedicalRecord(
+    int patientId, {
+    String? medicalRecord,
+    String? chronicDiseases,
+    String? allergies,
+    String? bloodType,
+  }) async {
+    final body = <String, dynamic>{
+      if (medicalRecord   != null) 'medicalRecord':   medicalRecord,
+      if (chronicDiseases != null) 'chronicDiseases': chronicDiseases,
+      if (allergies       != null) 'allergies':       allergies,
+      if (bloodType       != null) 'bloodType':       bloodType,
+    };
+    try {
+      final res = await http.put(
+        Uri.parse('$_base/medical-record/$patientId'),
+        headers: _headers,
+        body: jsonEncode(body),
+      ).timeout(_requestTimeout);
+      return res.statusCode >= 200 && res.statusCode < 300
+          ? ApiResult.success(true, res.statusCode)
+          : ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
   // SENSORS  — /api/sensors
   // ════════════════════════════════════════════════════════════════
 
@@ -868,6 +910,18 @@ class ApiService {
           (j) => AmbulanceLocationResponse.fromJson(
               j as Map<String, dynamic>));
 
+  /// PUT /api/location/ambulance/{id} — manual location set (admin / ambulance)
+  Future<void> setAmbulanceLocationManual(
+      int ambulanceId, double lat, double lng) async {
+    try {
+      await http.put(
+        Uri.parse('$_base/location/ambulance/$ambulanceId'),
+        headers: _headers,
+        body: jsonEncode({'latitude': lat, 'longitude': lng}),
+      ).timeout(const Duration(seconds: 8));
+    } catch (_) {}
+  }
+
   /// GET /api/location/ambulances/nearest?lat=&lng=
   /// Returns nearest available ambulances sorted by distance.
   Future<ApiResult<List<AmbulanceLocationResponse>>> getNearestAmbulances(
@@ -1105,33 +1159,6 @@ class ApiService {
         return ApiResult.success(true, res.statusCode);
       }
       return ApiResult.failure(_errorMsg(res), res.statusCode);
-    } catch (e) {
-      return ApiResult.failure(e.toString(), null);
-    }
-  }
-
-  Future<ApiResult<bool>> updateMedicalRecord(
-    int patientId, {
-    String? medicalRecord,
-    String? chronicDiseases,
-    String? allergies,
-    String? bloodType,
-  }) async {
-    final body = <String, dynamic>{
-      if (medicalRecord   != null) 'medicalRecord':   medicalRecord,
-      if (chronicDiseases != null) 'chronicDiseases': chronicDiseases,
-      if (allergies       != null) 'allergies':       allergies,
-      if (bloodType       != null) 'bloodType':       bloodType,
-    };
-    try {
-      final res = await http.put(
-        Uri.parse('$_base/patients/$patientId/medical-record'),
-        headers: _headers,
-        body: jsonEncode(body),
-      ).timeout(_requestTimeout);
-      return res.statusCode >= 200 && res.statusCode < 300
-          ? ApiResult.success(true, res.statusCode)
-          : ApiResult.failure(_errorMsg(res), res.statusCode);
     } catch (e) {
       return ApiResult.failure(e.toString(), null);
     }

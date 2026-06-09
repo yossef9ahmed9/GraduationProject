@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
@@ -8,6 +9,7 @@ import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
+import 'package:meditrack/widgets/map_location_picker.dart';
 import 'package:meditrack/screens/pages/dispatch_tracking_page.dart';
 import 'package:meditrack/screens/pages/ambulance_navigation_page.dart';
 
@@ -29,10 +31,17 @@ class _AmbulancesPageState extends State<AmbulancesPage>
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
+    // Always do an initial refresh when the page opens
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
     // Auto-refresh for non-ambulance roles so they see status changes
     final role = context.read<AuthProvider>().role;
     if (role != UserRole.ambulance) {
       _autoRefresh = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (mounted) _refresh();
+      });
+    } else {
+      // Ambulance: also poll every 15s so new Pending dispatches appear without FCM delay
+      _autoRefresh = Timer.periodic(const Duration(seconds: 15), (_) {
         if (mounted) _refresh();
       });
     }
@@ -46,8 +55,13 @@ class _AmbulancesPageState extends State<AmbulancesPage>
   }
 
   Future<void> _refresh() async {
-    final app = context.read<AppProvider>();
-    await Future.wait([app.refreshDispatches(), app.refreshAmbulances()]);
+    final app  = context.read<AppProvider>();
+    final auth = context.read<AuthProvider>();
+    await Future.wait([
+      app.refreshDispatches(role: auth.role),
+      app.refreshAmbulances(),
+    ]);
+    if (mounted) setState(() {});
   }
 
   // DND toggle — Busy ↔ Available (shown in status bar for ambulance)
@@ -92,6 +106,7 @@ class _AmbulancesPageState extends State<AmbulancesPage>
   Future<void> _updateStatus(int id, String status) async {
     setState(() { _busy = true; _msg = null; });
     final ok = await context.read<AppProvider>().updateDispatchStatus(id, status);
+    await _refresh();
     if (!mounted) return;
     setState(() { _busy = false; _isError = !ok; _msg = ok ? 'Updated.' : 'Failed.'; });
   }
@@ -102,7 +117,7 @@ class _AmbulancesPageState extends State<AmbulancesPage>
     final auth   = context.watch<AuthProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final role   = auth.role;
-    final myEmail = auth.user?.email?.toLowerCase() ?? '';
+    final myEmail = auth.user?.email.toLowerCase() ?? '';
 
     final myAmbulance = role == UserRole.ambulance
         ? app.ambulances
@@ -157,6 +172,8 @@ class _AmbulancesPageState extends State<AmbulancesPage>
                   ? app.dispatches
                   .where((d) => d.ambulanceId == myAmbulance?.id)
                   .toList()
+                  : role == UserRole.relative
+                  ? app.dispatchesForMyPatients()
                   : app.dispatches,
               role: role,
               myAmbulanceId: myAmbulance?.id,
@@ -174,6 +191,8 @@ class _AmbulancesPageState extends State<AmbulancesPage>
               a.availabilityStatus == 'Available' ||
                   a.availabilityStatus == 'Busy')
                   .toList(),
+              role: role,
+              myEmail: myEmail,
             ),
           ],
         )),
@@ -317,7 +336,9 @@ class _DispatchTab extends StatelessWidget {
 
 class _FleetTab extends StatelessWidget {
   final List<AmbulanceResponse> ambulances;
-  const _FleetTab({required this.ambulances});
+  final UserRole role;
+  final String myEmail;
+  const _FleetTab({required this.ambulances, required this.role, required this.myEmail});
 
   @override
   Widget build(BuildContext context) {
@@ -328,7 +349,12 @@ class _FleetTab extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: ambulances.length,
-      itemBuilder: (_, i) => _AmbCard(ambulance: ambulances[i]),
+      itemBuilder: (_, i) {
+        final a = ambulances[i];
+        final canSet = role == UserRole.admin ||
+            a.email.toLowerCase() == myEmail.toLowerCase();
+        return _AmbCard(ambulance: a, canSetLocation: canSet);
+      },
     );
   }
 }
@@ -513,51 +539,137 @@ class _DispatchCard extends StatelessWidget {
 
 // ── Ambulance card ────────────────────────────────────────────
 
-class _AmbCard extends StatelessWidget {
+class _AmbCard extends StatefulWidget {
   final AmbulanceResponse ambulance;
-  const _AmbCard({required this.ambulance});
+  final bool canSetLocation;
+  const _AmbCard({required this.ambulance, required this.canSetLocation});
+  @override
+  State<_AmbCard> createState() => _AmbCardState();
+}
+
+class _AmbCardState extends State<_AmbCard> {
+  bool _saving = false;
+
+  bool get _isStale {
+    if (widget.ambulance.lastLocationUpdate == null) return true;
+    final last = DateTime.tryParse(widget.ambulance.lastLocationUpdate!)?.toUtc();
+    if (last == null) return true;
+    return DateTime.now().toUtc().difference(last).inMinutes >= 5;
+  }
+
+  Future<void> _pickLocation() async {
+    final result = await showModalBottomSheet<LatLng>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MapLocationPicker(
+        title:      'Set ${widget.ambulance.driverName}\'s Location',
+        initialLat: widget.ambulance.latitude,
+        initialLng: widget.ambulance.longitude,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _saving = true);
+    await apiService.setAmbulanceLocationManual(
+        widget.ambulance.id, result.latitude, result.longitude);
+    if (mounted) setState(() => _saving = false);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final isStale = _isStale;
+
     BadgeType bt;
-    switch (ambulance.availabilityStatus) {
+    switch (widget.ambulance.availabilityStatus) {
       case 'Available': bt = BadgeType.green; break;
       case 'Busy':      bt = BadgeType.red;   break;
       default:          bt = BadgeType.amber;
     }
+
     return AppCard(
       padding: const EdgeInsets.all(14),
-      child: Row(children: [
-        Container(
-          width: 40, height: 40,
-          decoration: BoxDecoration(
-              color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
-              borderRadius: BorderRadius.circular(10)),
-          child: Icon(Icons.emergency_outlined, size: 20,
-              color: isDark
-                  ? AppColors.darkBadgeBlueTxt
-                  : AppColors.badgeBlueTxt),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(ambulance.driverName,
-              style: GoogleFonts.dmSans(
-                  fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(ambulance.serviceArea ?? ambulance.licensePlate,
-              style: GoogleFonts.dmSans(fontSize: 12,
-                  color: isDark
-                      ? AppColors.darkTextSecondary
-                      : AppColors.textSecondary)),
-          Text(ambulance.phone,
-              style: GoogleFonts.dmSans(fontSize: 11.5,
-                  color: isDark
-                      ? AppColors.darkTextTertiary
-                      : AppColors.textTertiary)),
-        ])),
-        BadgeWidget(label: ambulance.availabilityStatus, type: bt),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+        // ── Main row ──────────────────────────────────────────
+        Row(children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
+                borderRadius: BorderRadius.circular(10)),
+            child: Icon(Icons.emergency_outlined, size: 20,
+                color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(widget.ambulance.driverName,
+                style: GoogleFonts.dmSans(
+                    fontSize: 14, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(widget.ambulance.serviceArea ?? widget.ambulance.licensePlate,
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+            Text(widget.ambulance.phone,
+                style: GoogleFonts.dmSans(fontSize: 11.5,
+                    color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          ])),
+          BadgeWidget(label: widget.ambulance.availabilityStatus, type: bt),
+        ]),
+
+        // ── Stale / missing location warning ──────────────────
+        if (isStale) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+                    .withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(children: [
+              Icon(Icons.location_off_rounded, size: 15,
+                  color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.ambulance.latitude == null
+                      ? 'No location found — GPS never received'
+                      : 'Location outdated — last update too long ago',
+                  style: GoogleFonts.dmSans(fontSize: 12,
+                      color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
+                ),
+              ),
+              if (widget.canSetLocation) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _saving ? null : _pickLocation,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkAccent : AppColors.accent,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: _saving
+                        ? const SizedBox(width: 12, height: 12,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text('Set on Map',
+                            style: GoogleFonts.dmSans(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white)),
+                  ),
+                ),
+              ],
+            ]),
+          ),
+        ],
+
       ]),
     );
   }

@@ -14,11 +14,14 @@ class AppNotification {
   bool            isRead;
   final String?   chatEmail;
   final String?   chatName;
+  final int?      patientId;   // for emergency/dispatch notifications
+  final int?      dispatchId;  // for ambulance tracking
 
   AppNotification({
     required this.id, required this.title, required this.body,
     required this.type, required this.time,
     this.isRead = false, this.chatEmail, this.chatName,
+    this.patientId, this.dispatchId,
   });
 }
 
@@ -83,13 +86,16 @@ class NotificationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addEmergency(String patientName, String detail) {
+  void addEmergency(String patientName, String detail,
+      {int? patientId, int? dispatchId}) {
     add(AppNotification(
-      id:    'emg_${DateTime.now().millisecondsSinceEpoch}',
-      title: '🚨 Emergency — $patientName',
-      body:  detail,
-      type:  NotifType.emergency,
-      time:  DateTime.now(),
+      id:         'emg_${DateTime.now().millisecondsSinceEpoch}',
+      title:      '🚨 Emergency — $patientName',
+      body:       detail,
+      type:       NotifType.emergency,
+      time:       DateTime.now(),
+      patientId:  patientId,
+      dispatchId: dispatchId,
     ));
   }
 
@@ -120,16 +126,22 @@ class NotificationProvider extends ChangeNotifier {
     final senderEmail = data['senderEmail'] as String?;
     final senderName  = data['senderName']  as String? ?? title;
 
-    debugPrint('[NotifProvider] addFromFcm: senderEmail=$senderEmail senderName=$senderName');
+    // Extract patientId and dispatchId so notification tap opens the right screen
+    final patientId  = int.tryParse(data['patientId']?.toString()  ?? '');
+    final dispatchId = int.tryParse(data['dispatchId']?.toString() ?? '');
+
+    debugPrint('[NotifProvider] addFromFcm: type=$type patientId=$patientId dispatchId=$dispatchId');
 
     add(AppNotification(
-      id:        'fcm_${DateTime.now().millisecondsSinceEpoch}',
-      title:     senderName,
-      body:      body,
-      type:      type,
-      time:      DateTime.now(),
-      chatEmail: senderEmail,
-      chatName:  senderName,
+      id:         'fcm_${DateTime.now().millisecondsSinceEpoch}',
+      title:      senderName,
+      body:       body,
+      type:       type,
+      time:       DateTime.now(),
+      chatEmail:  senderEmail,
+      chatName:   senderName,
+      patientId:  patientId,
+      dispatchId: dispatchId,
     ));
   }
 

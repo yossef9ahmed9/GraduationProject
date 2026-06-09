@@ -8,6 +8,8 @@ import 'package:meditrack/services/theme_provider.dart';
 import 'package:meditrack/services/notification_provider.dart';
 import 'package:meditrack/services/fcm_service.dart';
 import 'package:meditrack/services/chat_service.dart';
+import 'package:meditrack/services/location_service.dart';
+import 'package:meditrack/models/models.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/screens/login_screen.dart';
 import 'package:meditrack/screens/home_screen.dart';
@@ -87,6 +89,17 @@ class _SplashState extends State<_Splash> {
       fcmService.onMessageReceived = (title, body, data) {
         notifs.addFromFcm(title: title, body: body, data: data);
       };
+
+      // Resume GPS tracking after session restore
+      if (auth.role == UserRole.patient) {
+        final patient = app.patientByEmail(auth.user!.email);
+        if (patient != null) locationService.startPatientTracking(patient.id);
+      } else if (auth.role == UserRole.ambulance) {
+        final myAmb = app.ambulances
+            .where((a) => a.email.toLowerCase() == auth.user!.email.toLowerCase())
+            .firstOrNull;
+        if (myAmb != null) locationService.startAmbulanceTracking(myAmb.id);
+      }
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -25,10 +26,24 @@ class _VitalsPageState extends State<VitalsPage> {
   HeartRiskResponse? _riskResult;
   bool _analyzingRisk = false;
 
+  // ── Auto-refresh every 30s to match Arduino send interval ─────
+  Timer? _sensorRefresh;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    _sensorRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && _selectedPatientId != null) {
+        _loadVitals(_selectedPatientId!);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sensorRefresh?.cancel();
+    super.dispose();
   }
 
   void _init() {
@@ -172,6 +187,10 @@ class _VitalsPageState extends State<VitalsPage> {
           ],
           if (isAlert && latest != null) ...[
             EmergencyBanner(text: _alertText(latest)),
+            const SizedBox(height: 8),
+          ],
+          if (latest?.autoDispatch != null && (latest!.autoDispatch!.isActive)) ...[
+            _AmbulanceDispatchBanner(dispatch: latest.autoDispatch!),
             const SizedBox(height: 12),
           ],
 
@@ -588,4 +607,57 @@ class _StatChip extends StatelessWidget {
       ]),
     ),
   );
+}
+
+// ════════════════════════════════════════════════════════════════
+// Ambulance Dispatch Banner
+// Shows when auto-emergency triggered a real ambulance dispatch.
+// Only visible while dispatch status is Pending / OnTheWay / Arrived.
+// ════════════════════════════════════════════════════════════════
+class _AmbulanceDispatchBanner extends StatelessWidget {
+  final EmergencyDispatchResponse dispatch;
+  const _AmbulanceDispatchBanner({required this.dispatch});
+
+  String get _statusLabel {
+    switch (dispatch.status) {
+      case 'OnTheWay': return 'Ambulance on the way';
+      case 'Arrived':  return 'Ambulance arrived';
+      default:         return 'Ambulance dispatched';
+    }
+  }
+
+  IconData get _statusIcon {
+    switch (dispatch.status) {
+      case 'OnTheWay': return Icons.directions_car_rounded;
+      case 'Arrived':  return Icons.local_hospital_rounded;
+      default:         return Icons.emergency_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEDED),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFAAAA), width: 1),
+      ),
+      child: Row(children: [
+        Icon(_statusIcon, color: const Color(0xFFCC0000), size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_statusLabel,
+                style: GoogleFonts.dmSans(
+                    fontSize: 13, fontWeight: FontWeight.w700,
+                    color: const Color(0xFFCC0000))),
+            Text('Dispatch #${dispatch.id} · ${dispatch.status}',
+                style: GoogleFonts.dmMono(
+                    fontSize: 11, color: const Color(0xFF990000))),
+          ]),
+        ),
+      ]),
+    );
+  }
 }

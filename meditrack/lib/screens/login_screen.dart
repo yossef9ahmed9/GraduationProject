@@ -8,6 +8,7 @@ import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/chat_service.dart';
 import 'package:meditrack/services/notification_provider.dart';
 import 'package:meditrack/services/location_service.dart';
+import 'package:meditrack/services/fcm_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/register_screen.dart';
@@ -73,6 +74,15 @@ class _LoginScreenState extends State<LoginScreen>
     // Init SignalR chat + notifications
     await chatService.connect(auth.user!.token, auth.user!.email);
     notifs.init(auth.user!.email);
+
+    // Init FCM push notifications
+    await fcmService.init(
+      userEmail: auth.user!.email,
+      authToken: auth.user!.token,
+    );
+    fcmService.onMessageReceived = (title, body, data) {
+      notifs.addFromFcm(title: title, body: body, data: data);
+    };
 
     // Start GPS tracking for patient
     if (auth.role == UserRole.patient) {

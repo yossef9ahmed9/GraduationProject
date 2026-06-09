@@ -20,6 +20,9 @@
         // Optional area/zone label (e.g. "Nasr City", "Shubra")
         public string?  ServiceArea   { get; set; }
 
+        // FCM push token — updated by the app after every login
+        public string?  FcmToken      { get; set; }
+
         public bool      IsDeleted     { get; set; }
         public DateTime? DeletedAtUtc  { get; set; }
 

@@ -30,8 +30,8 @@ namespace GraduationProject.Contracts.Authentication
                 .WithMessage("Invalid Egyptian phone number format.");
 
             RuleFor(x => x.RelationType)
-                .NotEmpty().WithMessage("Relation type is required.")
-                .MaximumLength(50);
+                .MaximumLength(50)
+                .When(x => x.RelationType != null);
         }
     }
 }

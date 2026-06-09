@@ -3,7 +3,6 @@
     public record RelativeRequest(
         string Name,
         string Phone,
-        string RelationType,
-        int PatientId
+        string? RelationType
     );
 }

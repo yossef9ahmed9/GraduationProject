@@ -21,6 +21,7 @@ namespace GraduationProject.Services
         private const int HeartRateCriticalLow  = 40;
         private const int HeartRateCriticalHigh = 150;
         private const double OxygenSaturationCriticalLow = 90.0;
+        private const int StaleLocationMinutes = 5; // ambulances not seen in 5 min are skipped
 
         public async Task<EmergencyDispatchResponse?> TryTriggerEmergencyAsync(
             int vitalSignsId,
@@ -132,9 +133,25 @@ namespace GraduationProject.Services
             int count,
             CancellationToken cancellationToken)
         {
+            var cutoff = DateTime.UtcNow.AddMinutes(-StaleLocationMinutes);
+
             var available = await _context.Ambulances
-                .Where(a => a.AvailabilityStatus == "Available" && !a.IsDeleted)
+                .Where(a => a.AvailabilityStatus == "Available" &&
+                            !a.IsDeleted &&
+                            a.Latitude.HasValue &&
+                            a.Longitude.HasValue &&
+                            a.LastLocationUpdate.HasValue &&
+                            a.LastLocationUpdate.Value >= cutoff)   // ← fresh GPS only
                 .ToListAsync(cancellationToken);
+
+            // Fallback: if no fresh ambulances found, accept any available ambulance
+            // (covers edge case where GPS is slow to update on first login)
+            if (!available.Any())
+            {
+                available = await _context.Ambulances
+                    .Where(a => a.AvailabilityStatus == "Available" && !a.IsDeleted)
+                    .ToListAsync(cancellationToken);
+            }
 
             if (!available.Any())
                 return [];

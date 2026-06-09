@@ -110,7 +110,7 @@ namespace GraduationProject.Services
             }
         }
 
-        // ── Send emergency push to patient's relatives and doctor ─────────────
+        // ── Send emergency push to patient's relatives, doctors, and dispatched ambulances ──
         public async Task SendEmergencyPushAsync(
             int patientId,
             string patientName,
@@ -135,12 +135,13 @@ namespace GraduationProject.Services
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            var allTokens = relativeFcmTokens
+            // Send to relatives + doctors with type "emergency"
+            var relDocTokens = relativeFcmTokens
                 .Concat(doctorFcmTokens!)
                 .Distinct()
                 .ToList();
 
-            var tasks = allTokens.Select(token => SendPushAsync(
+            var relDocTasks = relDocTokens.Select(token => SendPushAsync(
                 token,
                 $"🚨 Emergency — {patientName}",
                 notes,
@@ -151,7 +152,28 @@ namespace GraduationProject.Services
                 },
                 cancellationToken));
 
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(relDocTasks);
+
+            // Get all Pending dispatches for this patient and send to each ambulance
+            var ambulanceDispatches = await _context.EmergencyDispatches
+                .AsNoTracking()
+                .Where(d => d.PatientId == patientId && d.Status == "Pending" && d.Ambulance.FcmToken != null)
+                .Select(d => new { d.Id, d.Ambulance.FcmToken })
+                .ToListAsync(cancellationToken);
+
+            var ambTasks = ambulanceDispatches.Select(d => SendPushAsync(
+                d.FcmToken!,
+                $"🚨 New Emergency Dispatch",
+                $"Patient: {patientName} — {notes}",
+                new Dictionary<string, string>
+                {
+                    ["patientId"]  = patientId.ToString(),
+                    ["dispatchId"] = d.Id.ToString(),
+                    ["type"]       = "dispatch"
+                },
+                cancellationToken));
+
+            await Task.WhenAll(ambTasks);
         }
 
         // ── Save FCM token for a user ─────────────────────────────────────────
@@ -186,6 +208,16 @@ namespace GraduationProject.Services
             if (doctor is not null)
             {
                 doctor.FcmToken = fcmToken;
+                await _context.SaveChangesAsync(cancellationToken);
+                return;
+            }
+
+            // Try ambulance
+            var ambulance = await _context.Ambulances
+                .FirstOrDefaultAsync(a => a.Email == userId, cancellationToken);
+            if (ambulance is not null)
+            {
+                ambulance.FcmToken = fcmToken;
                 await _context.SaveChangesAsync(cancellationToken);
             }
         }

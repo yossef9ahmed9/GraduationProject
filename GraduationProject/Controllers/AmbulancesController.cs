@@ -69,6 +69,15 @@ namespace GraduationProject.Controllers
             return result.IsSuccess ? NoContent() : result.ToProblem();
         }
 
+        // GET /api/ambulances/me — returns the ambulance record for the logged-in driver
+        [HttpGet("me")]
+        [Authorize(Roles = "Ambulance")]
+        public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
+        {
+            var result = await _service.GetByEmailAsync(Email(), cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : result.ToProblem();
+        }
+
         // POST /api/ambulances/signin
         [HttpPost("signin")]
         [Authorize(Roles = "Ambulance")]

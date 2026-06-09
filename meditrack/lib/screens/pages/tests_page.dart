@@ -891,45 +891,97 @@ class _LabRequestCard extends StatelessWidget {
 
 // ── Test tile ─────────────────────────────────────────────────
 
+/// A single parsed field from a medical test result string.
+class _Chip {
+  final String name;
+  final String value;
+  final String status; // Normal | High | Low
+
+  const _Chip({required this.name, required this.value, required this.status});
+}
+
 class _TestTile extends StatelessWidget {
   final MedicalTestResponse test;
   final AppProvider app;
   const _TestTile({required this.test, required this.app});
+
+  // ── Parse the stored result string into typed chips ───────────
+  // The backend always saves one of two formats:
+  //
+  //   Pipe (new — from OcrController / _LabFormSheet):
+  //     "Hemoglobin: 13.5 | MCV: 79.6 (Low) | WBC: 8.2"
+  //
+  //   JSON (old — may exist in DB for legacy records):
+  //     {"Status":"Warning","Tests":[{"Name":"Hemoglobin","Value":13.5,"Status":"Normal"},...]}
+  //
+  // Both formats are handled so existing data renders correctly.
+  static List<_Chip> _parseResult(String result) {
+    if (result.isEmpty) return [];
+
+    // ── Try JSON first (legacy format) ──────────────────────────
+    try {
+      final decoded = jsonDecode(result);
+      if (decoded is Map) {
+        final rawList = (decoded['Tests'] ?? decoded['tests']) as List?;
+        if (rawList != null && rawList.isNotEmpty) {
+          return rawList
+              .whereType<Map>()
+              .where((t) {
+                final s = (t['Status'] ?? t['status'] ?? '').toString();
+                return s != 'UnreadableValue';
+              })
+              .map((t) => _Chip(
+                    name:   (t['Name']   ?? t['name']   ?? '').toString(),
+                    value:  (t['Value']  ?? t['value']  ?? '').toString(),
+                    status: (t['Status'] ?? t['status'] ?? 'Normal').toString(),
+                  ))
+              .where((c) => c.name.isNotEmpty)
+              .toList();
+        }
+      }
+    } catch (_) {
+      // Not JSON — continue to pipe parsing
+    }
+
+    // ── Pipe-separated format ────────────────────────────────────
+    // Each segment: "Name: value" or "Name: value (Status)"
+    if (result.contains(':')) {
+      final chips = <_Chip>[];
+      for (final segment in result.split('|')) {
+        final part = segment.trim();
+        if (part.isEmpty || !part.contains(':')) continue;
+
+        final colonIdx = part.indexOf(':');
+        final name     = part.substring(0, colonIdx).trim();
+        var   rest     = part.substring(colonIdx + 1).trim();
+
+        // Extract optional "(Status)" suffix
+        String status = 'Normal';
+        final parenMatch = RegExp(r'\((\w+)\)\s*$').firstMatch(rest);
+        if (parenMatch != null) {
+          status = parenMatch.group(1) ?? 'Normal';
+          rest   = rest.substring(0, parenMatch.start).trim();
+        }
+
+        if (name.isNotEmpty) {
+          chips.add(_Chip(name: name, value: rest, status: status));
+        }
+      }
+      if (chips.isNotEmpty) return chips;
+    }
+
+    return [];
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark  = Theme.of(context).brightness == Brightness.dark;
     final date    = test.date != null ? DateTime.tryParse(test.date!)?.toLocal() : null;
     final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '-';
-    final labName = app.labName(test.labId) ?? 'Lab #${test.labId}';
-    final patName = app.patientName(test.patientId) ?? 'Patient #${test.patientId}';
+    final labName = app.labName(test.labId)          ?? 'Lab #${test.labId}';
+    final patName = app.patientName(test.patientId)  ?? 'Patient #${test.patientId}';
 
-    // ── Bug 1 fix: parse result as JSON if the backend stored it that way ──
-    // The backend may store the OCR analysis directly as a JSON string in the
-    // result field (e.g. {"Status":"Warning","Tests":[{"Name":"Hemoglobin",...}]}).
-    // We try to decode it and extract the Tests array. If that succeeds we render
-    // each test as a name+value chip. If parsing fails we fall back to the
-    // existing pipe-separated chip path, and finally to plain text.
-
-    // Step 1: attempt JSON decode
-    List<Map> jsonTests = [];
-    try {
-      final decoded = jsonDecode(test.result);
-      if (decoded is Map) {
-        // Backend key may be 'Tests' (PascalCase) or 'tests' (camelCase)
-        final rawList = decoded['Tests'] ?? decoded['tests'];
-        if (rawList is List) {
-          jsonTests = rawList.whereType<Map>().toList();
-        }
-      }
-    } catch (_) {
-      // Not JSON — fall through to pipe/plain-text paths below
-    }
-
-    // Step 2: pipe-separated chips (legacy format: "Name: value | Name: value")
-    final parts = jsonTests.isEmpty && test.result.contains('|')
-        ? test.result.split('|').map((s) => s.trim()).toList()
-        : <String>[];
+    final chips = _parseResult(test.result);
 
     return AppCard(
       padding: const EdgeInsets.all(14),
@@ -941,67 +993,51 @@ class _TestTile extends StatelessWidget {
               color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
         ]),
         const SizedBox(height: 4),
-        Text('$patName - $labName', style: GoogleFonts.dmSans(fontSize: 12,
+        Text('$patName · $labName', style: GoogleFonts.dmSans(fontSize: 12,
             color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-        if (test.result.isNotEmpty) ...[
+
+        if (chips.isNotEmpty) ...[
           const SizedBox(height: 8),
+          Wrap(spacing: 6, runSpacing: 6, children: chips.map((c) {
+            final isHigh  = c.status == 'High';
+            final isLow   = c.status == 'Low';
+            final isAlert = isHigh || isLow;
 
-          // Path A: JSON format — render each Test entry as "Name: Value" chip
-          if (jsonTests.isNotEmpty)
-            Wrap(spacing: 6, runSpacing: 6, children: jsonTests.map((t) {
-              // Keys may be PascalCase or camelCase depending on backend serialiser
-              final name   = (t['Name']   ?? t['name']   ?? '').toString();
-              final value  = (t['Value']  ?? t['value']  ?? '').toString();
-              final status = (t['Status'] ?? t['status'] ?? '').toString();
-              final isAlert = status == 'Low' || status == 'High';
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isAlert
-                      ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
-                      : (isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF5F7FB)),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: isAlert
-                      ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt).withOpacity(0.3)
-                      : (isDark ? AppColors.darkBorderColor : AppColors.borderColor)),
-                ),
-                // Display "Name: value" and mark abnormal with (Low)/(High)
-                child: Text(
-                  '$name: $value${isAlert ? " ($status)" : ""}',
-                  style: GoogleFonts.dmMono(fontSize: 11,
-                      color: isAlert
-                          ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-                          : (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
-                ),
-              );
-            }).toList())
+            final bg = isHigh
+                ? (isDark ? AppColors.darkBadgeRedBg   : AppColors.badgeRedBg)
+                : isLow
+                ? (isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg)
+                : (isDark ? const Color(0xFF1A1A1A)    : const Color(0xFFF5F7FB));
 
-          // Path B: pipe-separated format — existing chip rendering
-          else if (parts.isNotEmpty)
-            Wrap(spacing: 6, runSpacing: 6, children: parts.map((p) {
-              final isAlert = p.toLowerCase().contains('(high)') || p.toLowerCase().contains('(low)');
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isAlert
-                      ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
-                      : (isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF5F7FB)),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: isAlert
-                      ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt).withOpacity(0.3)
-                      : (isDark ? AppColors.darkBorderColor : AppColors.borderColor)),
-                ),
-                child: Text(p, style: GoogleFonts.dmMono(fontSize: 11,
-                    color: isAlert
-                        ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-                        : (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
-              );
-            }).toList())
+            final fg = isHigh
+                ? (isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt)
+                : isLow
+                ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+                : (isDark ? AppColors.darkTextPrimary   : AppColors.textPrimary);
 
-          // Path C: plain text fallback
-          else
-            Text(test.result, style: GoogleFonts.dmSans(fontSize: 12.5,
-                color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: fg.withValues(alpha: isAlert ? 0.35 : 0.15),
+                ),
+              ),
+              child: Text(
+                '${c.name}: ${c.value}${isHigh ? ' ↑' : isLow ? ' ↓' : ''}',
+                style: GoogleFonts.dmMono(
+                  fontSize: 11,
+                  fontWeight: isAlert ? FontWeight.w600 : FontWeight.w400,
+                  color: fg,
+                ),
+              ),
+            );
+          }).toList()),
+        ] else if (test.result.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(test.result, style: GoogleFonts.dmSans(fontSize: 12.5,
+              color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
         ],
       ]),
     );

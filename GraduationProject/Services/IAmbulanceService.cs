@@ -16,6 +16,10 @@ namespace GraduationProject.Services
             int id, string? callerEmail, bool isAmbulanceRole,
             CancellationToken cancellationToken = default);
 
+        Task<Result<AmbulanceResponse>> GetByEmailAsync(
+            string email,
+            CancellationToken cancellationToken = default);
+
         Task<PagedResponse<AmbulanceDispatchSummary>> GetDispatchesAsync(
             int id, string? callerEmail, bool isAmbulanceRole,
             int pageNumber = 1, int pageSize = 10,

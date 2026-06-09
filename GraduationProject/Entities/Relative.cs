@@ -5,7 +5,7 @@
         public int    Id              { get; set; }
         public string Name            { get; set; } = string.Empty;
         public string Phone           { get; set; } = string.Empty;
-        public string RelationType    { get; set; } = string.Empty;
+        public string RelationType    { get; set; } = "Family";
         public string? Email          { get; set; }
         public bool   IsPrimaryContact { get; set; } = false;
         public string? FcmToken       { get; set; }

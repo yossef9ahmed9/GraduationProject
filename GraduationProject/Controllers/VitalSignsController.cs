@@ -71,11 +71,11 @@ namespace GraduationProject.Controllers
                 : result.ToProblem();
         }
 
-        // NEW: POST /api/vitalsigns/{id}/check-emergency
-        // Manually re-evaluates a saved vital-signs reading and triggers an emergency
-        // dispatch if the values are critical and no dispatch exists yet.
-        // Useful for admin tools or retry scenarios when the automatic trigger failed.
+        // POST /api/vitalsigns/{id}/check-emergency
+        // Admin-only: manually re-evaluates a saved reading and triggers dispatch if critical.
+        // Emergency dispatch is normally triggered automatically by the sensor endpoint.
         [HttpPost("{id}/check-emergency")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CheckEmergency(
             int id,
             CancellationToken cancellationToken)
@@ -85,6 +85,67 @@ namespace GraduationProject.Controllers
             return dispatch is null
                 ? Ok(new { message = "No emergency triggered. Values are within safe thresholds or an emergency is already active." })
                 : Ok(new { message = "Emergency dispatch created.", dispatch });
+        }
+
+        // POST /api/vitalsigns/sensor
+        // Called directly by ESP32/Arduino — no user auth required.
+        // Accepts { patientId, heartRate, oxygenSaturation } only (no sensorId).
+        // Automatically resolves or creates a sensor record for the patient,
+        // then saves the reading and triggers auto-emergency if values are critical.
+        [HttpPost("sensor")]
+        [AllowAnonymous]
+        public async Task<IActionResult> PostFromSensor(
+            [FromBody] SensorVitalRequest request,
+            CancellationToken cancellationToken)
+        {
+            // Verify patient exists
+            var patientExists = await _context.Patients
+                .AnyAsync(p => p.Id == request.PatientId, cancellationToken);
+
+            if (!patientExists)
+                return NotFound(new { message = "Patient not found." });
+
+            // Get existing sensor for this patient, or create one automatically
+            var sensor = await _context.Sensors
+                .FirstOrDefaultAsync(s => s.PatientId == request.PatientId && !s.IsDeleted, cancellationToken);
+
+            if (sensor is null)
+            {
+                sensor = new Sensor
+                {
+                    PatientId   = request.PatientId,
+                    Type        = "MAX30102",
+                    Description = "Auto-registered sensor",
+                    IsActive    = true,
+                    LastPing    = DateTime.UtcNow,
+                };
+                await _context.Sensors.AddAsync(sensor, cancellationToken);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            // Build the standard request and reuse the full service pipeline
+            // (saves reading + runs AutoEmergencyService + FCM notifications)
+            var vitalRequest = new VitalSignsRequest(
+                HeartRate:        request.HeartRate,
+                OxygenSaturation: request.OxygenSaturation,
+                SensorId:         sensor.Id,
+                PatientId:        request.PatientId);
+
+            var result = await _service.AddAsync(vitalRequest, cancellationToken);
+
+            if (!result.IsSuccess)
+                return result.ToProblem();
+
+            var saved = result.Value;
+            return Ok(new
+            {
+                id           = saved.Id,
+                heartRate    = saved.HeartRate,
+                spo2         = saved.OxygenSaturation,
+                isEmergency  = saved.EmergencyStatus,
+                autoDispatch = saved.AutoDispatch is not null,
+                savedAt      = saved.TimeStamp,
+            });
         }
     }
 }

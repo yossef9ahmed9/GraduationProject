@@ -32,10 +32,9 @@
 // ─────────────────────────────────────────────────────────────────
 const char* WIFI_SSID   = "YOUR_WIFI_NAME";
 const char* WIFI_PASS   = "YOUR_WIFI_PASSWORD";
-const char* API_URL     = "http://YOUR_SERVER_IP:8000/predict/window";
+const char* API_URL     = "http://192.168.1.6:5098/api/vitalsigns/sensor";
 
-const int   PATIENT_AGE = 45;   // patient age — change this
-const int   PATIENT_SEX = 1;    // 1 = male, 0 = female
+const int   PATIENT_ID  = 1;    // ← change to the real patient ID from DB
 
 const int   ALERT_LED   = 2;    // built-in LED on most ESP32 boards
 const int   BUZZER_PIN  = 4;    // optional buzzer pin
@@ -147,16 +146,12 @@ void sendToAPI(float bpmAvg, float bpmMinVal, float bpmMaxVal,
     return;
   }
 
-  // Build JSON body
+  // Build JSON body matching SensorVitalRequest contract
+  // { patientId, heartRate, oxygenSaturation } — no sensorId needed
   StaticJsonDocument<256> doc;
-  doc["bpm_avg"]  = bpmAvg;
-  doc["bpm_min"]  = bpmMinVal;
-  doc["bpm_max"]  = bpmMaxVal;
-  doc["spo2_avg"] = spo2Avg;
-  doc["spo2_min"] = spo2MinVal;
-  doc["hrv_ms"]   = hrv;
-  doc["age"]      = PATIENT_AGE;
-  doc["sex"]      = PATIENT_SEX;
+  doc["patientId"]        = PATIENT_ID;
+  doc["heartRate"]        = (int)round(bpmAvg);
+  doc["oxygenSaturation"] = spo2Avg;
 
   String body;
   serializeJson(doc, body);
@@ -167,31 +162,29 @@ void sendToAPI(float bpmAvg, float bpmMinVal, float bpmMaxVal,
   http.addHeader("Content-Type", "application/json");
   int code = http.POST(body);
 
-  if (code == 200) {
+  if (code == 200 || code == 201) {
     String response = http.getString();
     Serial.println("Response: " + response);
 
     StaticJsonDocument<512> res;
-    deserializeJson(res, response);
+    if (!deserializeJson(res, response)) {
+      bool emergency    = res["isEmergency"]  | false;
+      bool dispatched   = res["autoDispatch"] | false;
+      Serial.printf("isEmergency=%s | ambulanceDispatched=%s\n",
+                    emergency  ? "YES" : "NO",
+                    dispatched ? "YES" : "NO");
 
-    const char* tier   = res["tier"];
-    float       score  = res["score"];
-    bool        alert  = res["alert"];
-    const char* action = res["action"];
-
-    Serial.printf("TIER=%s | SCORE=%.1f | ALERT=%s\n", tier, score, alert ? "YES" : "NO");
-    Serial.println("ACTION: " + String(action));
-
-    if (alert) {
-      triggerCriticalAlert();
-    } else if (strcmp(tier, "WARNING") == 0) {
-      triggerWarningAlert();
-    } else {
-      clearAlert();
+      if (emergency) {
+        triggerCriticalAlert();
+        if (dispatched) Serial.println(">>> Ambulance has been dispatched!");
+      } else {
+        clearAlert();
+      }
     }
 
   } else {
     Serial.printf("API error: HTTP %d\n", code);
+    Serial.println(http.getString());
   }
 
   http.end();
