@@ -763,16 +763,17 @@ class OcrScanResponse {
 class AmbulanceResponse {
   final int id;
   final String email;
-  final String driverName;   // ← primary display name (replaces stationName)
+  final String driverName;
   final String driverPhone;
   final String licensePlate;
-  final String phone;        // ambulance unit phone
+  final String phone;
   final String availabilityStatus;
-  final String? serviceArea; // optional zone label (e.g. "Nasr City")
+  final String? serviceArea;
   final double? latitude;
   final double? longitude;
   final String? lastLocationUpdate;
   final int activeDispatchCount;
+  final String locationSource; // "GPS" | "Manual" | "Unknown"
 
   const AmbulanceResponse({
     required this.id,
@@ -787,6 +788,7 @@ class AmbulanceResponse {
     this.longitude,
     this.lastLocationUpdate,
     required this.activeDispatchCount,
+    this.locationSource = 'Unknown',
   });
 
   factory AmbulanceResponse.fromJson(Map<String, dynamic> j) => AmbulanceResponse(
@@ -802,6 +804,7 @@ class AmbulanceResponse {
     longitude:           (j['longitude'] as num?)?.toDouble(),
     lastLocationUpdate:  j['lastLocationUpdate']  as String?,
     activeDispatchCount: j['activeDispatchCount'] as int?    ?? 0,
+    locationSource:      j['locationSource']      as String? ?? 'Unknown',
   );
 }
 

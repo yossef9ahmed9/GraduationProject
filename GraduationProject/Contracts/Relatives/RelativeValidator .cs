@@ -8,7 +8,6 @@ namespace GraduationProject.Contracts.Relatives
         public RelativeValidator()
         {
             RuleFor(x => x.Name).NotEmpty();
-            RuleFor(x => x.PatientId).GreaterThan(0);
         }
     }
 }

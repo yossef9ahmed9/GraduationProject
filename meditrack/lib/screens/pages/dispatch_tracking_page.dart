@@ -103,13 +103,7 @@ class _DispatchTrackingPageState extends State<DispatchTrackingPage> {
       appBar: AppBar(
         title: Text('Tracking — ${widget.patientName}',
             style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _fetch,
-            tooltip: 'Refresh now',
-          ),
-        ],
+        actions: const [],
       ),
       body: Column(children: [
         // ── Status bar ────────────────────────────────────────

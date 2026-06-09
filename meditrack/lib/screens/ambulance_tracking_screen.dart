@@ -150,12 +150,6 @@ class _AmbulanceTrackingScreenState
               child: Center(
                   child: SizedBox(width: 18, height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2))),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.refresh_rounded),
-              tooltip: 'Refresh now',
-              onPressed: _refresh,
             ),
         ],
       ),

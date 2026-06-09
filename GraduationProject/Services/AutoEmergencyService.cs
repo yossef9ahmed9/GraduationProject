@@ -135,17 +135,30 @@ namespace GraduationProject.Services
         {
             var cutoff = DateTime.UtcNow.AddMinutes(-StaleLocationMinutes);
 
-            var available = await _context.Ambulances
+            // Priority 1: GPS Active (fresh GPS within threshold)
+            var gpsActive = await _context.Ambulances
                 .Where(a => a.AvailabilityStatus == "Available" &&
                             !a.IsDeleted &&
-                            a.Latitude.HasValue &&
-                            a.Longitude.HasValue &&
+                            a.LocationSource == "GPS" &&
+                            a.Latitude.HasValue && a.Longitude.HasValue &&
                             a.LastLocationUpdate.HasValue &&
-                            a.LastLocationUpdate.Value >= cutoff)   // ← fresh GPS only
+                            a.LastLocationUpdate.Value >= cutoff)
                 .ToListAsync(cancellationToken);
 
-            // Fallback: if no fresh ambulances found, accept any available ambulance
-            // (covers edge case where GPS is slow to update on first login)
+            // Priority 2: Manual location (user set it deliberately — always valid)
+            var manualSet = await _context.Ambulances
+                .Where(a => a.AvailabilityStatus == "Available" &&
+                            !a.IsDeleted &&
+                            a.LocationSource == "Manual" &&
+                            a.Latitude.HasValue && a.Longitude.HasValue)
+                .ToListAsync(cancellationToken);
+
+            // Combine: GPS first, then Manual, skip Unknown entirely
+            var available = gpsActive
+                .Concat(manualSet.Where(m => gpsActive.All(g => g.Id != m.Id)))
+                .ToList();
+
+            // Fallback: if truly nothing found, accept any Available ambulance
             if (!available.Any())
             {
                 available = await _context.Ambulances
@@ -153,8 +166,7 @@ namespace GraduationProject.Services
                     .ToListAsync(cancellationToken);
             }
 
-            if (!available.Any())
-                return [];
+            if (!available.Any()) return [];
 
             if (!patient.Latitude.HasValue || !patient.Longitude.HasValue)
                 return available.Take(count).ToList();

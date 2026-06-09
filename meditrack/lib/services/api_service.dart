@@ -886,11 +886,12 @@ class ApiService {
   /// PUT /api/location/ambulance/{ambulanceId}
   Future<ApiResult<AmbulanceLocationResponse>> updateAmbulanceLocation(
     int ambulanceId,
-    UpdateLocationRequest req,
-  ) =>
+    UpdateLocationRequest req, {
+    String source = 'GPS',
+  }) =>
       _putWithResponse(
         '/location/ambulance/$ambulanceId',
-        req.toJson(),
+        {'latitude': req.latitude, 'longitude': req.longitude, 'source': source},
         (j) => AmbulanceLocationResponse.fromJson(
             j as Map<String, dynamic>),
       );
@@ -917,7 +918,7 @@ class ApiService {
       await http.put(
         Uri.parse('$_base/location/ambulance/$ambulanceId'),
         headers: _headers,
-        body: jsonEncode({'latitude': lat, 'longitude': lng}),
+        body: jsonEncode({'latitude': lat, 'longitude': lng, 'source': 'Manual'}),
       ).timeout(const Duration(seconds: 8));
     } catch (_) {}
   }

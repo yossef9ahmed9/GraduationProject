@@ -127,10 +127,7 @@ class _AmbulancesPageState extends State<AmbulancesPage>
 
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: Stack(
-        children: [
-          Column(children: [
-        // ── DND status bar (Ambulance role only) ─────────────
+      child: Column(children: [
         if (role == UserRole.ambulance)
           myAmbulance != null
               ? _DndBar(
@@ -197,19 +194,9 @@ class _AmbulancesPageState extends State<AmbulancesPage>
           ],
         )),
       ]),
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: FloatingActionButton.small(
-              onPressed: _refresh,
-              tooltip: 'Refresh',
-              child: const Icon(Icons.refresh_rounded),
-            ),
-          ),
-        ],
-      ),
     );
   }
+}  }
 }
 
 // ── DND bar — only shown for Ambulance role ───────────────────
@@ -296,11 +283,20 @@ class _DispatchTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (dispatches.isEmpty) {
-      return const EmptyState(
-          message: 'No dispatches', icon: Icons.emergency_outlined);
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: constraints.maxHeight,
+            child: const EmptyState(
+                message: 'No dispatches', icon: Icons.emergency_outlined),
+          ),
+        ),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
+      physics: const AlwaysScrollableScrollPhysics(),
       itemCount: dispatches.length,
       itemBuilder: (_, i) {
         final d = dispatches[i];
@@ -343,11 +339,20 @@ class _FleetTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (ambulances.isEmpty) {
-      return const EmptyState(
-          message: 'No active ambulances', icon: Icons.emergency_outlined);
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: constraints.maxHeight,
+            child: const EmptyState(
+                message: 'No active ambulances', icon: Icons.emergency_outlined),
+          ),
+        ),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
+      physics: const AlwaysScrollableScrollPhysics(),
       itemCount: ambulances.length,
       itemBuilder: (_, i) {
         final a = ambulances[i];
@@ -550,11 +555,31 @@ class _AmbCard extends StatefulWidget {
 class _AmbCardState extends State<_AmbCard> {
   bool _saving = false;
 
-  bool get _isStale {
-    if (widget.ambulance.lastLocationUpdate == null) return true;
-    final last = DateTime.tryParse(widget.ambulance.lastLocationUpdate!)?.toUtc();
-    if (last == null) return true;
-    return DateTime.now().toUtc().difference(last).inMinutes >= 5;
+  // Returns: 'gps' | 'manual' | 'unknown'
+  String get _locationStatus {
+    final src = widget.ambulance.locationSource;
+    if (widget.ambulance.latitude == null) return 'unknown';
+    if (src == 'Manual') return 'manual';
+    if (src == 'GPS') {
+      if (widget.ambulance.lastLocationUpdate == null) return 'unknown';
+      final last = DateTime.tryParse(widget.ambulance.lastLocationUpdate!);
+      if (last == null) return 'unknown';
+      final lastUtc = last.isUtc ? last : last.toUtc();
+      return DateTime.now().toUtc().difference(lastUtc).inMinutes >= 5
+          ? 'unknown'
+          : 'gps';
+    }
+    return 'unknown';
+  }
+
+  String _timeSince(String? iso) {
+    if (iso == null) return '';
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    return '${diff.inHours}h ago';
   }
 
   Future<void> _pickLocation() async {
@@ -572,13 +597,16 @@ class _AmbCardState extends State<_AmbCard> {
     setState(() => _saving = true);
     await apiService.setAmbulanceLocationManual(
         widget.ambulance.id, result.latitude, result.longitude);
-    if (mounted) setState(() => _saving = false);
+    if (mounted) {
+      await context.read<AppProvider>().refreshAmbulances();
+      setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark  = Theme.of(context).brightness == Brightness.dark;
-    final isStale = _isStale;
+    final locStatus = _locationStatus;
 
     BadgeType bt;
     switch (widget.ambulance.availabilityStatus) {
@@ -618,51 +646,84 @@ class _AmbCardState extends State<_AmbCard> {
           BadgeWidget(label: widget.ambulance.availabilityStatus, type: bt),
         ]),
 
-        // ── Stale / missing location warning ──────────────────
-        if (isStale) ...[
-          const SizedBox(height: 10),
+        const SizedBox(height: 8),
+
+        // ── Location status row ────────────────────────────────
+        if (locStatus == 'gps') ...[
+          // 🟢 GPS Active
+          Row(children: [
+            const Icon(Icons.gps_fixed_rounded, size: 14, color: Colors.green),
+            const SizedBox(width: 6),
+            Text('GPS Active — ${_timeSince(widget.ambulance.lastLocationUpdate)}',
+                style: GoogleFonts.dmSans(fontSize: 12, color: Colors.green,
+                    fontWeight: FontWeight.w500)),
+          ]),
+        ] else if (locStatus == 'manual') ...[
+          // 🟡 Manual Location
+          Row(children: [
+            Icon(Icons.edit_location_alt_rounded, size: 14,
+                color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
+            const SizedBox(width: 6),
+            Expanded(child: Text(
+              'Manual Location — ${_timeSince(widget.ambulance.lastLocationUpdate)}',
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt,
+                  fontWeight: FontWeight.w500),
+            )),
+            if (widget.canSetLocation)
+              GestureDetector(
+                onTap: _saving ? null : _pickLocation,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkAccent : AppColors.accent,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: _saving
+                      ? const SizedBox(width: 10, height: 10,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text('Update', style: GoogleFonts.dmSans(
+                          fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
+                ),
+              ),
+          ]),
+        ] else ...[
+          // 🔴 Unknown / No GPS
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg,
+              color: isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
-                    .withValues(alpha: 0.3),
-              ),
+                color: (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                    .withValues(alpha: 0.3)),
             ),
             child: Row(children: [
-              Icon(Icons.location_off_rounded, size: 15,
-                  color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
+              Icon(Icons.gps_off_rounded, size: 14,
+                  color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  widget.ambulance.latitude == null
-                      ? 'No location found — GPS never received'
-                      : 'Location outdated — last update too long ago',
-                  style: GoogleFonts.dmSans(fontSize: 12,
-                      color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
-                ),
-              ),
+              Expanded(child: Text(
+                widget.ambulance.latitude == null
+                    ? 'GPS Disabled / Permission Missing'
+                    : 'GPS signal lost — location outdated',
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt),
+              )),
               if (widget.canSetLocation) ...[
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: _saving ? null : _pickLocation,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: isDark ? AppColors.darkAccent : AppColors.accent,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: _saving
-                        ? const SizedBox(width: 12, height: 12,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : Text('Set on Map',
-                            style: GoogleFonts.dmSans(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white)),
+                        ? const SizedBox(width: 10, height: 10,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Text('Set on Map', style: GoogleFonts.dmSans(
+                            fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
                   ),
                 ),
               ],

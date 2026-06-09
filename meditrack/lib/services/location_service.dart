@@ -89,6 +89,7 @@ class LocationService extends ChangeNotifier {
     await apiService.updateAmbulanceLocation(
       ambulanceId,
       UpdateLocationRequest(latitude: pos.latitude, longitude: pos.longitude),
+      source: 'GPS',
     );
   }
 

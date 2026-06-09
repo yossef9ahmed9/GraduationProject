@@ -23,6 +23,10 @@
         // FCM push token — updated by the app after every login
         public string?  FcmToken      { get; set; }
 
+        // Location source — "GPS" | "Manual" | "Unknown"
+        // Unknown = never updated, GPS = live tracking, Manual = user set manually
+        public string   LocationSource { get; set; } = "Unknown";
+
         public bool      IsDeleted     { get; set; }
         public DateTime? DeletedAtUtc  { get; set; }
 

@@ -31,7 +31,8 @@ namespace GraduationProject.Services
                     a.Phone, a.AvailabilityStatus, a.ServiceArea,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
                     a.EmergencyDispatches.Count(d =>
-                        d.Status != "Resolved" && d.Status != "Cancelled")))
+                        d.Status != "Resolved" && d.Status != "Cancelled"),
+                    a.LocationSource))
                 .ToPagedListAsync(pageNumber, pageSize, cancellationToken);
         }
 
@@ -45,7 +46,8 @@ namespace GraduationProject.Services
                 .Select(a => new AmbulanceResponse(
                     a.Id, a.Email, a.DriverName, a.DriverPhone, a.LicensePlate,
                     a.Phone, a.AvailabilityStatus, a.ServiceArea,
-                    a.Latitude, a.Longitude, a.LastLocationUpdate, 0))
+                    a.Latitude, a.Longitude, a.LastLocationUpdate, 0,
+                    a.LocationSource))
                 .ToListAsync(cancellationToken);
         }
 
@@ -61,7 +63,8 @@ namespace GraduationProject.Services
                     a.Phone, a.AvailabilityStatus, a.ServiceArea,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
                     a.EmergencyDispatches.Count(d =>
-                        d.Status != "Resolved" && d.Status != "Cancelled")))
+                        d.Status != "Resolved" && d.Status != "Cancelled"),
+                    a.LocationSource))
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (ambulance is null)
@@ -90,7 +93,8 @@ namespace GraduationProject.Services
                     a.Phone, a.AvailabilityStatus, a.ServiceArea,
                     a.Latitude, a.Longitude, a.LastLocationUpdate,
                     a.EmergencyDispatches.Count(d =>
-                        d.Status != "Resolved" && d.Status != "Cancelled")))
+                        d.Status != "Resolved" && d.Status != "Cancelled"),
+                    a.LocationSource))
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (ambulance is null)

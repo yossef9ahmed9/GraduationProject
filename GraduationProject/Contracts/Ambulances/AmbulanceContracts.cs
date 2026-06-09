@@ -4,16 +4,17 @@ namespace GraduationProject.Contracts.Ambulances
     public record AmbulanceResponse(
         int       Id,
         string    Email,
-        string    DriverName,          // ← primary display name
+        string    DriverName,
         string    DriverPhone,
         string    LicensePlate,
-        string    Phone,               // ambulance unit phone
+        string    Phone,
         string    AvailabilityStatus,
-        string?   ServiceArea,         // optional zone label
+        string?   ServiceArea,
         double?   Latitude,
         double?   Longitude,
         DateTime? LastLocationUpdate,
-        int       ActiveDispatchCount
+        int       ActiveDispatchCount,
+        string    LocationSource = "Unknown"  // "GPS" | "Manual" | "Unknown"
     );
 
     public record AmbulanceDispatchSummary(

@@ -12,8 +12,10 @@ namespace GraduationProject.Contracts.Location
     // NEW: request model for updating an ambulance's GPS location.
     // Called by the ambulance driver's app while on a dispatch
     // so the patient/frontend can track the ambulance in real time.
+    // Source: "GPS" = live tracking, "Manual" = user set manually
     public record UpdateAmbulanceLocationRequest(
         double Latitude,
-        double Longitude
+        double Longitude,
+        string Source = "GPS"
     );
 }

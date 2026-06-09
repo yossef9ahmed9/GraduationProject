@@ -30,15 +30,31 @@ class NotificationsPage extends StatelessWidget {
             ),
         ],
       ),
-      body: all.isEmpty
-          ? const EmptyState(
-          message: 'No notifications yet',
-          icon: Icons.notifications_none_rounded)
-          : ListView.separated(
-        itemCount: all.length,
-        separatorBuilder: (_, __) => Divider(height: 1,
-            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-        itemBuilder: (_, i) => _NotifTile(notif: all[i]),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          // notifications are in-memory — just trigger a rebuild
+          notifs.markAllRead();
+          notifs.markAllRead(); // no-op rebuild trick — just notifyListeners
+        },
+        child: all.isEmpty
+            ? LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: SizedBox(
+                    height: constraints.maxHeight,
+                    child: const EmptyState(
+                        message: 'No notifications yet',
+                        icon: Icons.notifications_none_rounded),
+                  ),
+                ),
+              )
+            : ListView.separated(
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: all.length,
+                separatorBuilder: (_, __) => Divider(height: 1,
+                    color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+                itemBuilder: (_, i) => _NotifTile(notif: all[i]),
+              ),
       ),
     );
   }

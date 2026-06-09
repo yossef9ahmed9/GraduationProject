@@ -110,10 +110,11 @@ namespace GraduationProject.Controllers
             if (ambulance is null)
                 return NotFound(new { message = "Ambulance not found." });
 
-            // NEW: stamp the new coordinates and the update time
+            // Stamp coordinates, update time, and source
             ambulance.Latitude           = request.Latitude;
             ambulance.Longitude          = request.Longitude;
             ambulance.LastLocationUpdate = DateTime.UtcNow;
+            ambulance.LocationSource     = request.Source == "Manual" ? "Manual" : "GPS";
 
             await _context.SaveChangesAsync(cancellationToken);
 

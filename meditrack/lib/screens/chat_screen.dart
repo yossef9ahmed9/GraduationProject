@@ -42,15 +42,20 @@ class _ChatScreenState extends State<ChatScreen> {
     // Always connect with the correct token and email
     await chatService.connect(token, _myEmail);
 
-    // Load history using the auth token directly
+    // Buffer stream messages that arrive DURING history loading
+    final List<ChatMessage> buffer = [];
+    _sub = chatService.messageStream.listen((msg) {
+      final mine   = msg.senderEmail == _myEmail && msg.receiverEmail == widget.otherEmail;
+      final theirs = msg.senderEmail == widget.otherEmail && msg.receiverEmail == _myEmail;
+      if (!mine && !theirs) return;
+      buffer.add(msg);
+    });
+
+    // Load history
     final history = await chatService.getHistoryWithToken(widget.otherEmail, token, _myEmail);
     if (!mounted) return;
 
-    debugPrint('[ChatScreen] myEmail=$_myEmail otherEmail=${widget.otherEmail} history=${history.length} msgs token=${token.substring(0, 20)}...');
-    for (final m in history) {
-      debugPrint('[ChatScreen] msg: sender=${m.senderEmail} isMine=${m.senderEmail == _myEmail} content=${m.content}');
-    }
-
+    // Add history to messages + seenIds
     for (final m in history) {
       if (m.id != 0) _seenIds.add(m.id);
       _messages.add(_Msg(
@@ -62,10 +67,19 @@ class _ChatScreenState extends State<ChatScreen> {
         senderEmail: m.senderEmail,
       ));
     }
+
+    // Flush buffer — dedup against history IDs
+    for (final msg in buffer) {
+      if (msg.id != 0 && _seenIds.contains(msg.id)) continue;
+      if (msg.id != 0) _seenIds.add(msg.id);
+      _messages.add(_Msg.fromChat(msg, _myEmail));
+    }
+
     setState(() => _loading = false);
     _scrollToBottom();
 
-    // Listen to real-time messages
+    // Replace buffer listener with live listener
+    await _sub?.cancel();
     _sub = chatService.messageStream.listen((msg) {
       // Only care about messages in this conversation
       final mine  = msg.senderEmail == _myEmail && msg.receiverEmail == widget.otherEmail;
