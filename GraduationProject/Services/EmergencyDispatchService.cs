@@ -8,8 +8,8 @@ namespace GraduationProject.Services
 
         private static readonly Dictionary<string, HashSet<string>> ValidTransitions = new()
         {
-            { "Pending",   new() { "OnTheWay" } },
-            { "OnTheWay",  new() { "Arrived" } },
+            { "Pending",   new() { "OnTheWay", "Cancelled" } },
+            { "OnTheWay",  new() { "Arrived",  "Cancelled" } },
             { "Arrived",   new() { "Resolved", "Cancelled" } },
             { "Resolved",  new() },
             { "Cancelled", new() },
@@ -153,12 +153,27 @@ namespace GraduationProject.Services
 
             if (status == "Arrived")
                 dispatch.ArrivedAt = DateTime.UtcNow;
+                // Ambulance stays Busy — still with patient
 
             if (status == "Resolved" || status == "Cancelled")
             {
-                dispatch.ResolvedAt = DateTime.UtcNow;
-                dispatch.Ambulance.AvailabilityStatus = "Available";
-                dispatch.Patient.IsInEmergency = false;
+                if (status == "Resolved")
+                    dispatch.ResolvedAt = DateTime.UtcNow;
+
+                // Free the ambulance
+                if (dispatch.Ambulance is not null)
+                    dispatch.Ambulance.AvailabilityStatus = "Available";
+
+                // Only clear emergency flag if no other active dispatch for this patient
+                var otherActive = await _context.EmergencyDispatches
+                    .AnyAsync(d =>
+                        d.PatientId == dispatch.PatientId &&
+                        d.Id != dispatch.Id &&
+                        (d.Status == "Pending" || d.Status == "OnTheWay" || d.Status == "Arrived"),
+                        cancellationToken);
+
+                if (!otherActive && dispatch.Patient is not null)
+                    dispatch.Patient.IsInEmergency = false;
             }
 
             await _context.SaveChangesAsync(cancellationToken);

@@ -6,11 +6,13 @@ namespace GraduationProject.Services
     public class VitalSignsService(
         AppDbContext context,
         IAutoEmergencyService autoEmergency,
+        IFcmService fcmService,
         ILogger<VitalSignsService> logger
         ) : IVitalSignsService
     {
         private readonly AppDbContext _context = context;
         private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
+        private readonly IFcmService _fcmService = fcmService;
         private readonly ILogger<VitalSignsService> _logger = logger;
 
         public async Task<PagedResponse<VitalSignsResponse>> GetAllAsync(
@@ -90,6 +92,70 @@ namespace GraduationProject.Services
                 .Reference(v => v.Patient)
                 .LoadAsync(cancellationToken);
 
+            var patient = vital.Patient;
+
+            // ── Auto-resolve emergency if vitals are now normal ───────────────
+            if (patient.IsInEmergency && !IsCritical(vital))
+            {
+                // Cancel all Pending dispatches — ambulance hasn't accepted yet
+                var pendingDispatches = await _context.EmergencyDispatches
+                    .Include(d => d.Ambulance)
+                    .Where(d => d.PatientId == patient.Id && d.Status == "Pending")
+                    .ToListAsync(cancellationToken);
+
+                foreach (var d in pendingDispatches)
+                {
+                    d.Status = "Cancelled";
+                    if (d.Ambulance != null)
+                        d.Ambulance.AvailabilityStatus = "Available";
+                }
+
+                // OnTheWay / Arrived — don't cancel, just notify the driver
+                var activeDispatches = await _context.EmergencyDispatches
+                    .Include(d => d.Ambulance)
+                    .Where(d => d.PatientId == patient.Id &&
+                                (d.Status == "OnTheWay" || d.Status == "Arrived"))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var d in activeDispatches)
+                {
+                    if (d.Ambulance?.FcmToken != null)
+                    {
+                        await _fcmService.SendPushAsync(
+                            d.Ambulance.FcmToken,
+                            "✅ Patient Vitals Normal",
+                            $"{patient.Name} — vitals are now stable. Proceed at your discretion.",
+                            new Dictionary<string, string>
+                            {
+                                ["patientId"] = patient.Id.ToString(),
+                                ["type"]      = "normal_vitals",
+                            },
+                            cancellationToken);
+                    }
+                }
+
+                patient.IsInEmergency = false;
+                vital.EmergencyStatus = false;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                // Notify doctors + relatives
+                try
+                {
+                    await _fcmService.SendNormalVitalsPushAsync(
+                        patient.Id,
+                        patient.Name,
+                        $"HR: {vital.HeartRate} bpm | SpO₂: {vital.OxygenSaturation}%",
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to send normal vitals notification for patient {PatientId}", patient.Id);
+                }
+
+                var resolvedResponse = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = null };
+                return Result.Success(resolvedResponse);
+            }
+
             EmergencyDispatchResponse? autoDispatch = null;
             try
             {
@@ -110,6 +176,13 @@ namespace GraduationProject.Services
             var response = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = autoDispatch };
 
             return Result.Success(response);
+        }
+
+        private static bool IsCritical(VitalSigns v)
+        {
+            if (v.HeartRate <= 40 || v.HeartRate >= 150) return true;
+            if (v.OxygenSaturation < 90.0) return true;
+            return false;
         }
     }
 }

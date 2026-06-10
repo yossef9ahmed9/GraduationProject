@@ -45,7 +45,6 @@ const _patientNav = [
   _NavItem('tests',        'My Tests',     Icons.description_outlined),
   _NavItem('followups',    'Follow-ups',   Icons.assignment_outlined),
   _NavItem('requests',     'Link Requests',Icons.person_add_outlined),
-  _NavItem('ambulances',   'Ambulances',   Icons.emergency_outlined,       section: 'Emergency'),
   _NavItem('profile',      'My Account',   Icons.person_outline,           section: 'Settings'),
 ];
 const _doctorNav = [
@@ -70,7 +69,6 @@ const _relativeNav = [
   _NavItem('patient-file',    'Health File',    Icons.folder_open_rounded),
   _NavItem('followups',       'Follow-ups',     Icons.assignment_outlined),
   _NavItem('relative-chat',   'Care Team',      Icons.chat_bubble_outline_rounded),
-  _NavItem('ambulances',      'Ambulances',     Icons.emergency_outlined,       section: 'Emergency'),
   _NavItem('profile',         'My Account',     Icons.person_outline,           section: 'Settings'),
 ];
 const _ambulanceNav = [

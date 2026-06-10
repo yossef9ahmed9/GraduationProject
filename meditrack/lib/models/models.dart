@@ -1059,7 +1059,10 @@ class PatientLocationResponse {
 
 class AmbulanceLocationResponse {
   final int ambulanceId;
-  final String driverName;   // ← was stationName — now matches backend
+  final String driverName;
+  final String email;
+  final String driverPhone;
+  final String phone;
   final String availabilityStatus;
   final double? latitude;
   final double? longitude;
@@ -1069,6 +1072,9 @@ class AmbulanceLocationResponse {
   const AmbulanceLocationResponse({
     required this.ambulanceId,
     required this.driverName,
+    this.email = '',
+    this.driverPhone = '',
+    this.phone = '',
     required this.availabilityStatus,
     this.latitude,
     this.longitude,
@@ -1080,6 +1086,9 @@ class AmbulanceLocationResponse {
       AmbulanceLocationResponse(
         ambulanceId:           j['ambulanceId']           as int?    ?? 0,
         driverName:            j['driverName']            as String? ?? '',
+        email:                 j['email']                 as String? ?? '',
+        driverPhone:           j['driverPhone']           as String? ?? '',
+        phone:                 j['phone']                 as String? ?? '',
         availabilityStatus:    j['availabilityStatus']    as String? ?? '',
         latitude:              (j['latitude']  as num?)?.toDouble(),
         longitude:             (j['longitude'] as num?)?.toDouble(),

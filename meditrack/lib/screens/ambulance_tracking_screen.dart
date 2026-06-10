@@ -7,6 +7,7 @@ import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
+import 'package:meditrack/screens/chat_screen.dart';
 
 // ════════════════════════════════════════════════════════════════
 // AmbulanceTrackingScreen
@@ -219,7 +220,7 @@ class _AmbulanceTrackingScreenState
                       color: Colors.blue,
                       icon: Icons.person_pin_rounded,
                       label: _patient?.patientName
-                              ?.split(' ')
+                              .split(' ')
                               .first ??
                           '',
                     ),
@@ -258,15 +259,122 @@ class _AmbulanceTrackingScreenState
                 ),
               if (_ambulance != null) ...[
                 const SizedBox(height: 8),
-                _InfoTile(
-                  icon: Icons.emergency_rounded,
-                  color: Colors.red,
-                  title: _ambulance!.driverName,
-                  subtitle: _ambulance!.latitude != null
-                      ? '${_ambulance!.latitude!.toStringAsFixed(4)}, '
-                        '${_ambulance!.longitude!.toStringAsFixed(4)}'
-                      : 'No location data',
-                  badge: _ambulance!.availabilityStatus,
+                // ── Ambulance profile card ───────────────────────
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkBgBase
+                        : const Color(0xFFF5F7FB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: isDark
+                            ? AppColors.darkBorderColor
+                            : AppColors.borderColor),
+                  ),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    // Driver header row
+                    Row(children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.darkBadgeBlueBg
+                              : AppColors.badgeBlueBg,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.emergency_outlined,
+                            size: 20,
+                            color: isDark
+                                ? AppColors.darkBadgeBlueTxt
+                                : AppColors.badgeBlueTxt),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                            Text(_ambulance!.driverName,
+                                style: GoogleFonts.dmSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700)),
+                            Text('Ambulance Driver',
+                                style: GoogleFonts.dmSans(
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? AppColors.darkTextSecondary
+                                        : AppColors.textSecondary)),
+                          ])),
+                      BadgeWidget(
+                        label: _ambulance!.availabilityStatus,
+                        type: _ambulance!.availabilityStatus == 'Busy'
+                            ? BadgeType.red
+                            : BadgeType.green,
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+                    const Divider(height: 1),
+                    const SizedBox(height: 10),
+
+                    // Phone numbers
+                    if (_ambulance!.driverPhone.isNotEmpty)
+                      _AmbInfoRow(
+                          icon: Icons.phone_outlined,
+                          label: 'Driver',
+                          value: _ambulance!.driverPhone,
+                          isDark: isDark),
+                    if (_ambulance!.phone.isNotEmpty)
+                      _AmbInfoRow(
+                          icon: Icons.local_phone_outlined,
+                          label: 'Unit',
+                          value: _ambulance!.phone,
+                          isDark: isDark),
+                    if (_ambulance!.email.isNotEmpty)
+                      _AmbInfoRow(
+                          icon: Icons.email_outlined,
+                          label: 'Email',
+                          value: _ambulance!.email,
+                          isDark: isDark),
+
+                    // Chat button
+                    if (_ambulance!.email.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ChatScreen(
+                                otherEmail:
+                                    _ambulance!.email,
+                                otherName:
+                                    _ambulance!.driverName,
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 16),
+                          label: Text(
+                              'Chat with Driver',
+                              style: GoogleFonts.dmSans(
+                                  fontWeight: FontWeight.w600)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isDark
+                                ? AppColors.darkAccent
+                                : AppColors.accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ]),
                 ),
               ],
             ]),
@@ -375,4 +483,34 @@ class _InfoTile extends StatelessWidget {
         ),
     ]);
   }
+}
+
+// ── Ambulance info row ─────────────────────────────────────────
+
+class _AmbInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String   label;
+  final String   value;
+  final bool     isDark;
+  const _AmbInfoRow({
+    required this.icon, required this.label,
+    required this.value, required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(children: [
+      Icon(icon, size: 15,
+          color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+      const SizedBox(width: 8),
+      SizedBox(width: 52,
+          child: Text(label,
+              style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w600,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary))),
+      Expanded(child: Text(value,
+          style: GoogleFonts.dmSans(fontSize: 13,
+              color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
+    ]),
+  );
 }

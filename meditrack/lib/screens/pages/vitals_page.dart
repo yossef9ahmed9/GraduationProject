@@ -113,6 +113,31 @@ class _VitalsPageState extends State<VitalsPage> {
     return 'Emergency status active';
   }
 
+  // ── Status badge helpers ──────────────────────────────────────
+  // Reflects actual values, not just the DB emergencyStatus flag
+  bool _isCritical(VitalSignsResponse v) =>
+      v.emergencyStatus ||
+      v.heartRate >= 150 ||
+      v.heartRate <= 40 ||
+      (v.oxygenSaturation != null && v.oxygenSaturation! < 90);
+
+  bool _isWarning(VitalSignsResponse v) =>
+      v.heartRate > 100 ||
+      v.heartRate < 55 ||
+      (v.oxygenSaturation != null && v.oxygenSaturation! < 95);
+
+  String _vitalStatus(VitalSignsResponse v) {
+    if (_isCritical(v)) return 'Emergency';
+    if (_isWarning(v))  return 'Warning';
+    return 'Normal';
+  }
+
+  BadgeType _vitalBadgeType(VitalSignsResponse v) {
+    if (_isCritical(v)) return BadgeType.red;
+    if (_isWarning(v))  return BadgeType.amber;
+    return BadgeType.green;
+  }
+
   @override
   Widget build(BuildContext context) {
     final app    = context.watch<AppProvider>();
@@ -301,8 +326,8 @@ class _VitalsPageState extends State<VitalsPage> {
                             style: GoogleFonts.dmMono(fontSize: 12))),
                         DataCell(Text(v.bpDisplay, style: GoogleFonts.dmMono(fontSize: 12))),
                         DataCell(BadgeWidget(
-                            label: v.emergencyStatus ? 'Alert' : 'Normal',
-                            type: v.emergencyStatus ? BadgeType.red : BadgeType.green)),
+                            label: _vitalStatus(v),
+                            type:  _vitalBadgeType(v))),
                       ]);
                     }).toList(),
                   ),

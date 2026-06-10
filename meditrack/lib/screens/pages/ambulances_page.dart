@@ -7,11 +7,13 @@ import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/app_provider.dart';
 import 'package:meditrack/services/auth_provider.dart';
+import 'package:meditrack/services/notification_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/widgets/map_location_picker.dart';
 import 'package:meditrack/screens/pages/dispatch_tracking_page.dart';
 import 'package:meditrack/screens/pages/ambulance_navigation_page.dart';
+import 'package:meditrack/screens/chat_screen.dart';
 
 class AmbulancesPage extends StatefulWidget {
   const AmbulancesPage({super.key});
@@ -30,11 +32,11 @@ class _AmbulancesPageState extends State<AmbulancesPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    final role = context.read<AuthProvider>().role;
+    _tabs = TabController(length: role == UserRole.ambulance ? 3 : 2, vsync: this);
     // Always do an initial refresh when the page opens
     WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
     // Auto-refresh for non-ambulance roles so they see status changes
-    final role = context.read<AuthProvider>().role;
     if (role != UserRole.ambulance) {
       _autoRefresh = Timer.periodic(const Duration(seconds: 10), (_) {
         if (mounted) _refresh();
@@ -60,6 +62,7 @@ class _AmbulancesPageState extends State<AmbulancesPage>
     await Future.wait([
       app.refreshDispatches(role: auth.role),
       app.refreshAmbulances(),
+      app.refreshPatients(auth.role), // keeps isInEmergency flag fresh
     ]);
     if (mounted) setState(() {});
   }
@@ -157,6 +160,7 @@ class _AmbulancesPageState extends State<AmbulancesPage>
             tabs: [
               Tab(text: role == UserRole.ambulance ? 'My Dispatches' : 'Dispatches'),
               const Tab(text: 'Fleet'),
+              if (role == UserRole.ambulance) const Tab(text: 'Messages'),
             ],
           ),
         ),
@@ -191,12 +195,13 @@ class _AmbulancesPageState extends State<AmbulancesPage>
               role: role,
               myEmail: myEmail,
             ),
+            if (role == UserRole.ambulance)
+              _MessagesTab(myEmail: myEmail),
           ],
         )),
       ]),
     );
   }
-}  }
 }
 
 // ── DND bar — only shown for Ambulance role ───────────────────
@@ -387,7 +392,21 @@ class _DispatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final notifPr = context.watch<NotificationProvider>();
+    final appProv = context.watch<AppProvider>();
+
+    // Patient is stable if:
+    // 1. NotificationProvider received a normal_vitals FCM, OR
+    // 2. Patient's isInEmergency flag is false (backend cleared it when vitals normalized)
+    final patient = appProv.patients
+        .where((p) => p.id == dispatch.patientId)
+        .firstOrNull;
+    final isVitalsNormal = patient != null && !patient.isInEmergency;
+
+    final patientStable = showProgress &&
+        (dispatch.status == 'OnTheWay' || dispatch.status == 'Arrived') &&
+        (notifPr.isPatientStable(dispatch.patientId) || isVitalsNormal);
     final date   = DateTime.tryParse(dispatch.dispatchedAt)?.toLocal();
     final dateStr = date != null
         ? '${date.day}/${date.month} '
@@ -457,16 +476,72 @@ class _DispatchCard extends StatelessWidget {
 
         if (showProgress) ...[
           const SizedBox(height: 10),
-          Wrap(spacing: 8, children: [
-            if (dispatch.status == 'OnTheWay')
-              OutlinedButton(
-                  onPressed: () => onUpdateStatus('Arrived'),
-                  child: const Text('Mark Arrived')),
-            if (dispatch.status == 'Arrived')
-              ElevatedButton(
-                  onPressed: () => onUpdateStatus('Resolved'),
-                  child: const Text('Resolve')),
-          ]),
+
+          // ── Patient Stable banner + Cancel option ─────────────
+          if (patientStable) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF66BB6A)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.check_circle_rounded,
+                    color: Color(0xFF2E7D32), size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Patient vitals back to normal',
+                      style: GoogleFonts.dmSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF2E7D32))),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  context.read<NotificationProvider>()
+                      .clearPatientStable(dispatch.patientId);
+                  onUpdateStatus('Cancelled');
+                },
+                icon: const Icon(Icons.cancel_outlined, size: 16),
+                label: Text('Cancel Transport — Patient Stable',
+                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF2E7D32),
+                  side: const BorderSide(color: Color(0xFF66BB6A)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          if (dispatch.status == 'OnTheWay')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => onUpdateStatus('Arrived'),
+                child: const Text('Mark Arrived'),
+              ),
+            ),
+          if (dispatch.status == 'Arrived')
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => onUpdateStatus('Resolved'),
+                icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                label: Text('Complete Dispatch',
+                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.badgeGreenTxt,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
         ],
 
         if (showAdminControls &&
@@ -542,6 +617,113 @@ class _DispatchCard extends StatelessWidget {
   }
 }
 
+// ── Messages tab — shows all conversations for the ambulance ──
+
+class _MessagesTab extends StatelessWidget {
+  final String myEmail;
+  const _MessagesTab({required this.myEmail});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark   = Theme.of(context).brightness == Brightness.dark;
+    final notifPr  = context.watch<NotificationProvider>();
+
+    // Get unique senders who sent messages to this ambulance
+    final messageNotifs = notifPr.all
+        .where((n) => n.type == NotifType.message && n.chatEmail != null)
+        .toList();
+
+    // Deduplicate by chatEmail
+    final seen = <String>{};
+    final conversations = messageNotifs
+        .where((n) => seen.add(n.chatEmail!))
+        .toList();
+
+    if (conversations.isEmpty) {
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: constraints.maxHeight,
+            child: Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.chat_bubble_outline_rounded, size: 48,
+                    color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary),
+                const SizedBox(height: 12),
+                Text('No messages yet',
+                    style: GoogleFonts.dmSans(fontSize: 15,
+                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+                const SizedBox(height: 6),
+                Text('Relatives and doctors can chat with you\nthrough the tracking screen.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.dmSans(fontSize: 13,
+                        color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+              ]),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      itemCount: conversations.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final notif = conversations[i];
+        final unread = notifPr.all
+            .where((n) => n.chatEmail == notif.chatEmail && !n.isRead)
+            .length;
+        return AppCard(
+          padding: const EdgeInsets.all(14),
+          child: InkWell(
+            onTap: () {
+              notifPr.dismissMessagesFrom(notif.chatEmail!);
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ChatScreen(
+                  otherEmail: notif.chatEmail!,
+                  otherName:  notif.chatName ?? notif.chatEmail!,
+                ),
+              ));
+            },
+            child: Row(children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
+                child: Text(
+                  (notif.chatName ?? notif.chatEmail!)[0].toUpperCase(),
+                  style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w700,
+                      color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(notif.chatName ?? notif.chatEmail!,
+                    style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600)),
+                Text(notif.body, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(fontSize: 12,
+                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+              ])),
+              if (unread > 0)
+                Container(
+                  width: 22, height: 22,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkAccent : AppColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(child: Text('$unread',
+                      style: GoogleFonts.dmSans(fontSize: 11,
+                          fontWeight: FontWeight.w700, color: Colors.white))),
+                ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+}
+
 // ── Ambulance card ────────────────────────────────────────────
 
 class _AmbCard extends StatefulWidget {
@@ -561,13 +743,21 @@ class _AmbCardState extends State<_AmbCard> {
     if (widget.ambulance.latitude == null) return 'unknown';
     if (src == 'Manual') return 'manual';
     if (src == 'GPS') {
-      if (widget.ambulance.lastLocationUpdate == null) return 'unknown';
-      final last = DateTime.tryParse(widget.ambulance.lastLocationUpdate!);
-      if (last == null) return 'unknown';
-      final lastUtc = last.isUtc ? last : last.toUtc();
-      return DateTime.now().toUtc().difference(lastUtc).inMinutes >= 5
-          ? 'unknown'
-          : 'gps';
+      final raw = widget.ambulance.lastLocationUpdate;
+      if (raw == null) return 'unknown';
+      DateTime? last;
+      try {
+        last = DateTime.parse(raw);
+        // Backend returns UTC without 'Z' suffix — force UTC interpretation
+        if (!raw.contains('Z') && !raw.contains('+')) {
+          last = DateTime.utc(last.year, last.month, last.day,
+              last.hour, last.minute, last.second, last.millisecond);
+        }
+      } catch (_) {
+        return 'unknown';
+      }
+      final ageMinutes = DateTime.now().toUtc().difference(last).inMinutes;
+      return ageMinutes < 5 ? 'gps' : 'unknown';
     }
     return 'unknown';
   }

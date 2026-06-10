@@ -116,17 +116,47 @@ namespace GraduationProject.Controllers
             ambulance.LastLocationUpdate = DateTime.UtcNow;
             ambulance.LocationSource     = request.Source == "Manual" ? "Manual" : "GPS";
 
+            // ── Auto-Arrived check ────────────────────────────────────────────
+            // If ambulance is OnTheWay and within 100m of patient → auto-Arrived
+            bool autoArrived = false;
+            int? autoArrivedDispatchId = null;
+
+            var activeDispatch = await _context.EmergencyDispatches
+                .Include(d => d.Patient)
+                .FirstOrDefaultAsync(d =>
+                    d.AmbulanceId == ambulanceId &&
+                    d.Status == "OnTheWay",
+                    cancellationToken);
+
+            if (activeDispatch is not null &&
+                activeDispatch.Patient.Latitude.HasValue &&
+                activeDispatch.Patient.Longitude.HasValue)
+            {
+                var distanceKm = LocationHelper.HaversineDistance(
+                    request.Latitude,  request.Longitude,
+                    activeDispatch.Patient.Latitude.Value,
+                    activeDispatch.Patient.Longitude.Value);
+
+                if (distanceKm <= 0.1) // within 100 metres
+                {
+                    activeDispatch.Status    = "Arrived";
+                    activeDispatch.ArrivedAt = DateTime.UtcNow;
+                    autoArrived              = true;
+                    autoArrivedDispatchId    = activeDispatch.Id;
+                }
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
 
-            return Ok(new AmbulanceLocationResponse(
-                ambulance.Id,
-                ambulance.DriverName,
-                ambulance.AvailabilityStatus,
-                ambulance.Latitude,
-                ambulance.Longitude,
-                ambulance.LastLocationUpdate,
-                DistanceFromPatientKm: null   // no patient context here
-            ));
+            return Ok(new
+            {
+                ambulanceId        = ambulance.Id,
+                latitude           = ambulance.Latitude,
+                longitude          = ambulance.Longitude,
+                lastLocationUpdate = ambulance.LastLocationUpdate,
+                autoArrived        = autoArrived,
+                dispatchId         = autoArrivedDispatchId,
+            });
         }
 
         // ── GET /api/location/ambulance/{ambulanceId} ─────────────────────────
@@ -193,15 +223,19 @@ namespace GraduationProject.Controllers
                 distance = Math.Round(distance.Value, 2);
             }
 
-            return Ok(new AmbulanceLocationResponse(
-                ambulance.Id,
-                ambulance.DriverName,
-                ambulance.AvailabilityStatus,
-                ambulance.Latitude,
-                ambulance.Longitude,
-                ambulance.LastLocationUpdate,
-                DistanceFromPatientKm: distance
-            ));
+            return Ok(new {
+                ambulanceId        = ambulance.Id,
+                email              = ambulance.Email,
+                driverName         = ambulance.DriverName,
+                driverPhone        = ambulance.DriverPhone,
+                phone              = ambulance.Phone,
+                licensePlate       = ambulance.LicensePlate,
+                availabilityStatus = ambulance.AvailabilityStatus,
+                latitude           = ambulance.Latitude,
+                longitude          = ambulance.Longitude,
+                lastLocationUpdate = ambulance.LastLocationUpdate,
+                distanceFromPatientKm = distance,
+            });
         }
 
         // ── GET /api/location/ambulances/nearest?lat=&lng=&count= ────────────

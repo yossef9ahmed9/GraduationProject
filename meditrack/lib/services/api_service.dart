@@ -858,8 +858,21 @@ class ApiService {
   /// PATCH /api/emergencydispatches/{id}/status
   /// status: Pending | OnTheWay | Arrived | Resolved | Cancelled
   Future<ApiResult<bool>> updateDispatchStatus(
-          int id, String status) =>
-      _patch('/emergencydispatches/$id/status', {'status': status});
+          int id, String status) async {
+    try {
+      final res = await http.patch(
+        Uri.parse('$_base/emergencydispatches/$id/status'),
+        headers: _headers,
+        body: jsonEncode(status), // raw string — backend expects [FromBody] string
+      ).timeout(_requestTimeout);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return ApiResult.success(true, res.statusCode);
+      }
+      return ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
 
   // ════════════════════════════════════════════════════════════════
   // LOCATION  — /api/location
@@ -1165,6 +1178,50 @@ class ApiService {
     }
   }
 
+  // ════════════════════════════════════════════════════════════════
+  // SENSOR SIMULATOR  — POST /api/vitalsigns/sensor  (AllowAnonymous)
+  // Sends one simulated reading for the given patient.
+  // scenario: 'normal' | 'high_hr' | 'low_spo2' | 'low_hr'
+  // ════════════════════════════════════════════════════════════════
+
+  Future<ApiResult<Map<String, dynamic>>> sendSimulatedReading({
+    required int patientId,
+    String scenario = 'normal',
+  }) async {
+    final (hr, spo2) = _generateReading(scenario);
+    try {
+      final res = await http.post(
+        Uri.parse('$_base/vitalsigns/sensor'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'patientId':        patientId,
+          'heartRate':        hr,
+          'oxygenSaturation': spo2,
+        }),
+      ).timeout(_requestTimeout);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return ApiResult.success(
+            jsonDecode(res.body) as Map<String, dynamic>, res.statusCode);
+      }
+      return ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
+
+  (int hr, double spo2) _generateReading(String scenario) {
+    final rng = DateTime.now().millisecondsSinceEpoch;
+    switch (scenario) {
+      case 'high_hr':
+        return (151 + rng % 30, 94.0 + (rng % 30) / 10);
+      case 'low_spo2':
+        return (70  + rng % 30, 84.0 + (rng % 55) / 10);
+      case 'low_hr':
+        return (25  + rng % 15, 94.0 + (rng % 30) / 10);
+      default: // normal
+        return (62  + rng % 34, 96.0 + (rng % 35) / 10);
+    }
+  }
 }
 
 // Global singleton

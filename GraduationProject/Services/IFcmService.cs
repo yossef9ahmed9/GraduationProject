@@ -9,6 +9,9 @@
         Task SendEmergencyPushAsync(int patientId, string patientName,
             string notes, CancellationToken cancellationToken = default);
 
+        Task SendNormalVitalsPushAsync(int patientId, string patientName,
+            string details, CancellationToken cancellationToken = default);
+
         Task RegisterFcmTokenAsync(string userId, string fcmToken,
             CancellationToken cancellationToken = default);
     }

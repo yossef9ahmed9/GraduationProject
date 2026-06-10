@@ -5,9 +5,12 @@ import 'package:provider/provider.dart';
 import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/services/app_provider.dart';
+import 'package:meditrack/services/notification_provider.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/home_screen.dart';
+import 'package:meditrack/screens/pages/ambulance_navigation_page.dart';
+import 'package:meditrack/services/api_service.dart';
 
 class DashboardPage extends StatelessWidget {
   final UserRole role;
@@ -183,133 +186,399 @@ class _AmbulanceDash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // All active dispatches on the system
-    final allActive = app.activeDispatches;
-
-    // Dispatches assigned to THIS ambulance (pending requests for me)
-    final auth       = context.read<AuthProvider>();
-    final myEmail    = auth.user?.email ?? '';
-    final myAmb      = app.ambulances
-        .where((a) => a.email.toLowerCase() == myEmail.toLowerCase())
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final auth    = context.read<AuthProvider>();
+    // Watch NotificationProvider so the card rebuilds when patient becomes stable
+    context.watch<NotificationProvider>();
+    final myEmail = auth.user?.email.toLowerCase() ?? '';
+    final myAmb   = app.ambulances
+        .where((a) => a.email.toLowerCase() == myEmail)
         .firstOrNull;
-    final myPending  = myAmb != null
-        ? app.dispatches
-            .where((d) => d.ambulanceId == myAmb.id && d.status == 'Pending')
-            .toList()
+
+    final myDispatches = myAmb != null
+        ? app.dispatches.where((d) => d.ambulanceId == myAmb.id).toList()
         : <EmergencyDispatchResponse>[];
+
+    final pending  = myDispatches.where((d) => d.status == 'Pending').toList();
+    final active   = myDispatches
+        .where((d) => d.status == 'OnTheWay' || d.status == 'Arrived')
+        .toList();
+    final resolved = myDispatches.where((d) => d.status == 'Resolved').toList();
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
 
-      // ── Section 1: Pending requests for me ─────────────────
-      if (myPending.isNotEmpty) ...[
-        Text('Incoming Requests',
-            style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        ...myPending.map((d) => _DispatchSummaryCard(
-          dispatch: d,
-          app: app,
-          isDark: isDark,
-          highlight: true,
-        )),
-        const SizedBox(height: 20),
+      // ── Status card ──────────────────────────────────────────
+      if (myAmb != null) _AmbStatusCard(ambulance: myAmb, isDark: isDark),
+      const SizedBox(height: 16),
+
+      // ── Pending dispatch — big action card ───────────────────
+      if (pending.isNotEmpty) ...[
+        ...pending.map((d) => _PendingDispatchCard(
+            dispatch: d, app: app, isDark: isDark)),
+        const SizedBox(height: 16),
       ],
 
-      // ── Section 2: All active emergencies on the system ────
-      Text('Active Emergencies',
-          style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w700)),
-      const SizedBox(height: 4),
-      Text('${allActive.length} case${allActive.length != 1 ? 's' : ''} in progress',
-          style: GoogleFonts.dmSans(fontSize: 12,
-              color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-      const SizedBox(height: 10),
+      // ── Active dispatch — navigate card ──────────────────────
+      if (active.isNotEmpty) ...[
+        ...active.map((d) => _ActiveDispatchCard(
+            dispatch: d, app: app, isDark: isDark, myAmbId: myAmb?.id)),
+        const SizedBox(height: 16),
+      ],
 
-      if (allActive.isEmpty)
-        const EmptyState(
-            message: 'No active emergencies', icon: Icons.check_circle_outline)
-      else
-        ...allActive.map((d) => _DispatchSummaryCard(
-          dispatch: d,
-          app: app,
-          isDark: isDark,
-          highlight: false,
-        )),
+      // ── Waiting ───────────────────────────────────────────────
+      if (pending.isEmpty && active.isEmpty) ...[
+        _WaitingForDispatchCard(isDark: isDark),
+        const SizedBox(height: 16),
+      ],
+
+      // ── Stats ─────────────────────────────────────────────────
+      Row(children: [
+        Expanded(child: StatCard(
+            label: 'Resolved Today', value: '${resolved.length}')),
+        const SizedBox(width: 12),
+        Expanded(child: StatCard(
+            label: 'Total Dispatches', value: '${myDispatches.length}')),
+      ]),
     ]);
   }
 }
 
-class _DispatchSummaryCard extends StatelessWidget {
-  final EmergencyDispatchResponse dispatch;
-  final AppProvider app;
+// ── Ambulance status card ─────────────────────────────────────
+class _AmbStatusCard extends StatelessWidget {
+  final AmbulanceResponse ambulance;
   final bool isDark;
-  final bool highlight;
-  const _DispatchSummaryCard({
-    required this.dispatch, required this.app,
-    required this.isDark, required this.highlight,
-  });
+  const _AmbStatusCard({required this.ambulance, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
-    final patName = app.patientName(dispatch.patientId)
-        ?? 'Patient #${dispatch.patientId}';
-    DateTime? date;
-    try { date = DateTime.parse(dispatch.dispatchedAt).toLocal(); } catch (_) {}
-    final dateStr = date != null
-        ? '${date.day}/${date.month} '
-          '${date.hour.toString().padLeft(2,'0')}:'
-          '${date.minute.toString().padLeft(2,'0')}'
-        : '—';
-
-    BadgeType badgeType;
-    switch (dispatch.status) {
-      case 'OnTheWay':  badgeType = BadgeType.blue;   break;
-      case 'Arrived':   badgeType = BadgeType.purple; break;
-      case 'Resolved':  badgeType = BadgeType.green;  break;
-      case 'Cancelled': badgeType = BadgeType.red;    break;
-      default:          badgeType = BadgeType.amber;
-    }
-
+    final status = ambulance.availabilityStatus;
+    final bt = status == 'Available'
+        ? BadgeType.green
+        : status == 'Busy'
+            ? BadgeType.red
+            : BadgeType.amber;
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: highlight
-            ? (isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg)
-            : (isDark ? AppColors.darkBgCard : AppColors.bgCard),
+        color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: highlight
-              ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-                  .withValues(alpha: 0.4)
-              : (isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-        ),
+            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
       ),
       child: Row(children: [
-        Icon(
-          highlight ? Icons.emergency_rounded : Icons.local_hospital_outlined,
-          size: 20,
-          color: highlight
-              ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-              : (isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+        Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkAccentMuted : AppColors.accentMuted,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.emergency_outlined, size: 22,
+              color: isDark ? AppColors.darkAccent : AppColors.accent),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(patName, style: GoogleFonts.dmSans(
-              fontSize: 13, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 2),
-          Text(dateStr, style: GoogleFonts.dmSans(fontSize: 11,
-              color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-          if (dispatch.notes != null && dispatch.notes!.isNotEmpty)
-            Text(dispatch.notes!,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.dmSans(fontSize: 11,
+          Text(ambulance.driverName,
+              style: GoogleFonts.dmSans(
+                  fontSize: 15, fontWeight: FontWeight.w700)),
+          Text(ambulance.licensePlate,
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark
+                      ? AppColors.darkTextSecondary
+                      : AppColors.textSecondary)),
+        ])),
+        BadgeWidget(label: status, type: bt),
+      ]),
+    );
+  }
+}
+
+// ── Pending dispatch card — Accept / Reject ───────────────────
+class _PendingDispatchCard extends StatelessWidget {
+  final EmergencyDispatchResponse dispatch;
+  final AppProvider app;
+  final bool isDark;
+  const _PendingDispatchCard(
+      {required this.dispatch, required this.app, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final patName =
+        app.patientName(dispatch.patientId) ?? 'Patient #${dispatch.patientId}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2D1A1A) : const Color(0xFFFFF3F3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                .withValues(alpha: 0.5),
+            width: 1.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.emergency_rounded,
+              color:
+                  isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
+              size: 18),
+          const SizedBox(width: 8),
+          Text('🚨 Emergency Dispatch',
+              style: GoogleFonts.dmSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: isDark
+                      ? AppColors.darkBadgeRedTxt
+                      : AppColors.badgeRedTxt)),
+        ]),
+        const SizedBox(height: 8),
+        Text(patName,
+            style: GoogleFonts.dmSans(
+                fontSize: 16, fontWeight: FontWeight.w700)),
+        if (dispatch.notes != null && dispatch.notes!.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(dispatch.notes!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark
+                      ? AppColors.darkTextSecondary
+                      : AppColors.textSecondary)),
+        ],
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                final res = await apiService.acceptDispatch(dispatch.id);
+                if (context.mounted) {
+                  await app.refreshDispatches();
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(res.ok
+                          ? 'Accepted! Navigate to patient.'
+                          : (res.error ?? 'Failed.'))));
+                }
+              },
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: Text('Accept',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.badgeGreenTxt,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await apiService.rejectDispatch(dispatch.id);
+                if (context.mounted) await app.refreshDispatches();
+              },
+              icon: const Icon(Icons.close_rounded, size: 18),
+              label: Text('Reject',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor:
+                    isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
+                side: BorderSide(
+                    color: isDark
+                        ? AppColors.darkBadgeRedTxt
+                        : AppColors.badgeRedTxt),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Active dispatch card — Navigate + Mark Arrived / Resolve ──
+class _ActiveDispatchCard extends StatelessWidget {
+  final EmergencyDispatchResponse dispatch;
+  final AppProvider app;
+  final bool isDark;
+  final int? myAmbId;
+  const _ActiveDispatchCard(
+      {required this.dispatch,
+      required this.app,
+      required this.isDark,
+      this.myAmbId});
+
+  @override
+  Widget build(BuildContext context) {
+    final patName =
+        app.patientName(dispatch.patientId) ?? 'Patient #${dispatch.patientId}';
+    final isOnTheWay = dispatch.status == 'OnTheWay';
+    final notifPr    = context.watch<NotificationProvider>();
+
+    // Patient is stable if:
+    // 1. NotificationProvider received a normal_vitals FCM, OR
+    // 2. Patient's isInEmergency flag is false (backend cleared it when vitals normalized)
+    final patient = app.patients
+        .where((p) => p.id == dispatch.patientId)
+        .firstOrNull;
+    final isVitalsNormal = patient != null && !patient.isInEmergency;
+
+    final patientStable = notifPr.isPatientStable(dispatch.patientId) || isVitalsNormal;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0D1E2D) : const Color(0xFFF0F7FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color:
+                (isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt)
+                    .withValues(alpha: 0.5),
+            width: 1.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(
+              isOnTheWay
+                  ? Icons.directions_car_rounded
+                  : Icons.local_hospital_rounded,
+              color:
+                  isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt,
+              size: 18),
+          const SizedBox(width: 8),
+          Text(
+              isOnTheWay ? 'On the way to patient' : 'Arrived at patient',
+              style: GoogleFonts.dmSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? AppColors.darkBadgeBlueTxt
+                      : AppColors.badgeBlueTxt)),
+        ]),
+        const SizedBox(height: 8),
+        Text(patName,
+            style: GoogleFonts.dmSans(
+                fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
+
+        // ── Patient Stable banner ─────────────────────────────
+        if (patientStable) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F5E9),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF66BB6A)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.check_circle_rounded,
+                  color: Color(0xFF2E7D32), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Patient vitals back to normal',
+                    style: GoogleFonts.dmSans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF2E7D32))),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                context.read<NotificationProvider>()
+                    .clearPatientStable(dispatch.patientId);
+                await app.updateDispatchStatus(dispatch.id, 'Cancelled');
+                if (context.mounted) await app.refreshDispatches();
+              },
+              icon: const Icon(Icons.cancel_outlined, size: 16),
+              label: Text('Cancel Transport — Patient Stable',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF2E7D32),
+                side: const BorderSide(color: Color(0xFF66BB6A)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+
+        Row(children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => AmbulanceNavigationPage(
+                  dispatch:    dispatch,
+                  patientName: patName,
+                  ambulanceId: myAmbId ?? 0,
+                ),
+              )),
+              icon: const Icon(Icons.navigation_rounded, size: 18),
+              label: Text('Navigate',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    isDark ? AppColors.darkAccent : AppColors.accent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () async {
+                final newStatus = isOnTheWay ? 'Arrived' : 'Resolved';
+                await app.updateDispatchStatus(dispatch.id, newStatus);
+                if (context.mounted) await app.refreshDispatches();
+              },
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: Text(isOnTheWay ? 'Mark Arrived' : 'Resolve',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Waiting card ──────────────────────────────────────────────
+class _WaitingForDispatchCard extends StatelessWidget {
+  final bool isDark;
+  const _WaitingForDispatchCard({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+      ),
+      child: Row(children: [
+        Icon(Icons.check_circle_outline_rounded,
+            color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt,
+            size: 22),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("You're Available",
+                style: GoogleFonts.dmSans(
+                    fontSize: 14, fontWeight: FontWeight.w700)),
+            Text('Waiting for dispatch request…',
+                style: GoogleFonts.dmSans(fontSize: 12,
                     color: isDark
                         ? AppColors.darkTextSecondary
                         : AppColors.textSecondary)),
-        ])),
-        BadgeWidget(label: dispatch.status, type: badgeType),
+          ]),
+        ),
       ]),
     );
   }

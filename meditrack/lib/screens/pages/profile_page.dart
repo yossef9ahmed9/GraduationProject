@@ -14,6 +14,7 @@ import 'package:meditrack/services/location_service.dart';
 import 'package:meditrack/screens/login_screen.dart';
 import 'package:meditrack/screens/pages/change_name_page.dart';
 import 'package:meditrack/screens/pages/change_password_page.dart';
+import 'package:meditrack/screens/pages/sensor_provision_page.dart';
 import 'package:meditrack/models/models.dart';
 
 // Base URL for profile pictures served by the backend
@@ -326,6 +327,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   _InfoRow('Role',    auth.role.label),
                   _InfoRow('Email',   user?.email ?? '—'),
                   _InfoRow('User ID', user?.id     ?? '—'),
+                  // ── Connect Sensor button (patient only) ──────
+                  if (isPatient && patient != null) ...[
+                    const SizedBox(height: 12),
+                    _ConnectSensorButton(patientId: patient.id),
+                  ],
                 ]),
               ),
             ])),
@@ -761,3 +767,334 @@ class _EditField extends StatelessWidget {
     ]),
   );
 }
+
+// ── Connect Sensor button (patient only) ─────────────────────
+
+class _ConnectSensorButton extends StatelessWidget {
+  final int patientId;
+  const _ConnectSensorButton({required this.patientId});
+
+  void _showSensorSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _SensorSimulatorSheet(patientId: patientId),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        icon: Icon(Icons.sensors_rounded, size: 16,
+            color: isDark ? AppColors.darkAccent : AppColors.accent),
+        label: Text('Connect Sensor',
+            style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
+                color: isDark ? AppColors.darkAccent : AppColors.accent)),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(
+              color: isDark
+                  ? AppColors.darkAccent.withValues(alpha: 0.5)
+                  : AppColors.accent.withValues(alpha: 0.4)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+        onPressed: () => _showSensorSheet(context),
+      ),
+    );
+  }
+}
+
+// ── Sensor simulator bottom sheet ────────────────────────────
+
+class _SensorSimulatorSheet extends StatefulWidget {
+  final int patientId;
+  const _SensorSimulatorSheet({required this.patientId});
+  @override
+  State<_SensorSimulatorSheet> createState() => _SensorSimulatorSheetState();
+}
+
+class _SensorSimulatorSheetState extends State<_SensorSimulatorSheet>
+    with SingleTickerProviderStateMixin {
+
+  late final TabController _tab;
+
+  // ── Simulator state ──────────────────────────────────────────
+  String _scenario = 'normal';
+  bool   _sending  = false;
+  Map<String, dynamic>? _lastResult;
+  String? _error;
+
+  static const _scenarios = [
+    ('normal',   'Normal',   Icons.favorite_rounded),
+    ('high_hr',  'High HR',  Icons.trending_up_rounded),
+    ('low_spo2', 'Low SpO₂', Icons.air_rounded),
+    ('low_hr',   'Low HR',   Icons.trending_down_rounded),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+    _tab.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    setState(() { _sending = true; _lastResult = null; _error = null; });
+    final res = await apiService.sendSimulatedReading(
+      patientId: widget.patientId,
+      scenario:  _scenario,
+    );
+    if (!mounted) return;
+    setState(() {
+      _sending = false;
+      if (res.ok) { _lastResult = res.data; }
+      else        { _error = res.error; }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final isEmerg = _lastResult?['isEmergency'] == true;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+          20, 12, 20, MediaQuery.of(context).viewInsets.bottom + 32),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+
+        // Handle bar
+        Center(child: Container(
+          width: 36, height: 4,
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        )),
+
+        // Icon + title
+        Container(
+          width: 52, height: 52,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkAccentMuted : AppColors.accentMuted,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(Icons.sensors_rounded, size: 26,
+              color: isDark ? AppColors.darkAccent : AppColors.accent),
+        ),
+        const SizedBox(height: 10),
+        Text('Connect Sensor',
+            style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 16),
+
+        // ── Tabs ────────────────────────────────────────────────
+        Container(
+          height: 38,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgBase : AppColors.bgBase,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: TabBar(
+            controller: _tab,
+            indicator: BoxDecoration(
+              color: isDark ? AppColors.darkAccent : AppColors.accent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            labelColor: Colors.white,
+            unselectedLabelColor:
+                isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
+            labelStyle: GoogleFonts.dmSans(
+                fontSize: 13, fontWeight: FontWeight.w600),
+            tabs: const [
+              Tab(text: '🧪  Simulator'),
+              Tab(text: '📡  Real Sensor'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // ── Tab content ─────────────────────────────────────────
+        // Simulator tab
+        if (_tab.index == 0) ...[
+          Text('SCENARIO',
+              style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          const SizedBox(height: 10),
+          Row(children: _scenarios.map((s) {
+            final selected = _scenario == s.$1;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _scenario = s.$1),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? (isDark ? AppColors.darkAccentMuted : AppColors.accentMuted)
+                        : (isDark ? AppColors.darkBgBase : AppColors.bgBase),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: selected
+                          ? (isDark ? AppColors.darkAccent : AppColors.accent)
+                          : (isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+                    ),
+                  ),
+                  child: Column(children: [
+                    Icon(s.$3, size: 18,
+                        color: selected
+                            ? (isDark ? AppColors.darkAccent : AppColors.accent)
+                            : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+                    const SizedBox(height: 4),
+                    Text(s.$2,
+                        style: GoogleFonts.dmSans(
+                            fontSize: 10, fontWeight: FontWeight.w600,
+                            color: selected
+                                ? (isDark ? AppColors.darkAccent : AppColors.accent)
+                                : (isDark
+                                    ? AppColors.darkTextSecondary
+                                    : AppColors.textSecondary))),
+                  ]),
+                ),
+              ),
+            );
+          }).toList()),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: _sending
+                  ? const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.send_rounded, size: 16),
+              label: Text(_sending ? 'Sending…' : 'Send Reading',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+              onPressed: _sending ? null : _send,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // result / error
+          if (_lastResult != null)
+            _ResultBox(result: _lastResult!, isEmerg: isEmerg, isDark: isDark),
+          if (_error != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('❌ $_error',
+                  style: GoogleFonts.dmSans(fontSize: 12,
+                      color: isDark
+                          ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)),
+            ),
+        ],
+
+        // Real Sensor tab
+        if (_tab.index == 1) ...[
+          Text(
+            'Link a physical MAX30102 sensor to your account.\n'
+            'The sensor will automatically send readings every 30 seconds.',
+            style: GoogleFonts.dmSans(fontSize: 13,
+                color: isDark
+                    ? AppColors.darkTextSecondary
+                    : AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.sensors_rounded, size: 18),
+              label: Text('Set Up Real Sensor',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+              onPressed: () {
+                Navigator.of(context).pop(); // close sheet
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => SensorProvisionPage(
+                      patientId: widget.patientId),
+                ));
+              },
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+
+      ]),
+    );
+  }
+}
+
+// ── Result box ────────────────────────────────────────────────
+
+class _ResultBox extends StatelessWidget {
+  final Map<String, dynamic> result;
+  final bool isEmerg, isDark;
+  const _ResultBox({required this.result, required this.isEmerg, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 200),
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: isEmerg
+          ? (isDark ? AppColors.darkEmergencyBg  : AppColors.emergencyBg)
+          : (isDark ? AppColors.darkBgBase        : AppColors.bgBase),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: isEmerg
+            ? (isDark ? AppColors.darkEmergencyBdr : AppColors.emergencyBdr)
+            : (isDark ? AppColors.darkBorderColor  : AppColors.borderColor),
+      ),
+    ),
+    child: Row(children: [
+      Icon(
+        isEmerg
+            ? Icons.warning_amber_rounded
+            : Icons.check_circle_outline_rounded,
+        size: 20,
+        color: isEmerg
+            ? (isDark ? AppColors.darkEmergencyTxt : AppColors.emergencyTxt)
+            : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt),
+      ),
+      const SizedBox(width: 10),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          isEmerg ? '🚨 Emergency triggered!' : '✅ Reading sent',
+          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
+              color: isEmerg
+                  ? (isDark ? AppColors.darkEmergencyTxt : AppColors.emergencyTxt)
+                  : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'HR: ${result['heartRate']} bpm  |  SpO₂: ${result['spo2']}%',
+          style: GoogleFonts.sourceCodePro(fontSize: 11.5,
+              color: isDark
+                  ? AppColors.darkTextSecondary : AppColors.textSecondary),
+        ),
+      ])),
+    ]),
+  );
+}
+
+

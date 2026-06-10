@@ -27,6 +27,8 @@ class AppNotification {
 
 class NotificationProvider extends ChangeNotifier {
   final List<AppNotification> _notifications = [];
+  // Set of patientIds whose vitals returned to normal — used by ambulance UI
+  final Set<int> _stablePatients = {};
   String?   _myEmail;
   StreamSubscription<ChatMessage>? _sub;
 
@@ -37,6 +39,19 @@ class NotificationProvider extends ChangeNotifier {
   }
 
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
+
+  /// Returns true if the patient's vitals have returned to normal
+  bool isPatientStable(int patientId) => _stablePatients.contains(patientId);
+
+  void markPatientStable(int patientId) {
+    _stablePatients.add(patientId);
+    notifyListeners();
+  }
+
+  void clearPatientStable(int patientId) {
+    _stablePatients.remove(patientId);
+    notifyListeners();
+  }
 
   void init(String myEmail) {
     _myEmail = myEmail;
@@ -131,6 +146,13 @@ class NotificationProvider extends ChangeNotifier {
     final dispatchId = int.tryParse(data['dispatchId']?.toString() ?? '');
 
     debugPrint('[NotifProvider] addFromFcm: type=$type patientId=$patientId dispatchId=$dispatchId');
+
+    // Mark patient as stable so ambulance can show cancel option
+    if (type == NotifType.system &&
+        data['type'] == 'normal_vitals' &&
+        patientId != null) {
+      markPatientStable(patientId);
+    }
 
     add(AppNotification(
       id:         'fcm_${DateTime.now().millisecondsSinceEpoch}',

@@ -38,6 +38,7 @@ class _AmbulanceNavigationPageState extends State<AmbulanceNavigationPage> {
   Position? _myPos;
   Timer? _posTimer;
   bool _loading = true;
+  bool _autoArrived = false;
 
   @override
   void initState() {
@@ -46,20 +47,31 @@ class _AmbulanceNavigationPageState extends State<AmbulanceNavigationPage> {
   }
 
   Future<void> _init() async {
-    // start pushing location to server
     locationService.startAmbulanceTracking(widget.ambulanceId);
-
-    // get first position for the map
     final pos = await locationService.getCurrentPosition();
     if (!mounted) return;
     setState(() { _myPos = pos; _loading = false; });
 
-    // keep updating own pin on map every 5s
     _posTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       final p = await locationService.getCurrentPosition();
       if (!mounted || p == null) return;
       setState(() => _myPos = p);
+      _checkArrival(p);
     });
+  }
+
+  void _checkArrival(Position pos) {
+    if (_autoArrived) return;
+    if (widget.dispatch.status != 'OnTheWay') return;
+    final metres = Geolocator.distanceBetween(
+      pos.latitude, pos.longitude,
+      widget.dispatch.patientLatitude,
+      widget.dispatch.patientLongitude,
+    );
+    if (metres <= 100) {
+      setState(() => _autoArrived = true);
+      // Backend auto-sets Arrived via location push — no extra call needed
+    }
   }
 
   @override
@@ -108,6 +120,24 @@ class _AmbulanceNavigationPageState extends State<AmbulanceNavigationPage> {
             style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
       ),
       body: Column(children: [
+        // ── Arrived banner ────────────────────────────────────
+        if (_autoArrived)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: const Color(0xFFE8F5E9),
+            child: Row(children: [
+              const Icon(Icons.check_circle_rounded,
+                  color: Color(0xFF2E7D32), size: 18),
+              const SizedBox(width: 8),
+              Text('You have arrived at the patient',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF2E7D32))),
+            ]),
+          ),
+
         // ── Info bar ──────────────────────────────────────────
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
