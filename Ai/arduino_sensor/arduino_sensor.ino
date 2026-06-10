@@ -39,9 +39,9 @@
 #include "spo2_algorithm.h"
 
 // ── Pins ──────────────────────────────────────────────────────
-const int ALERT_LED  = 2;   // built-in LED
-const int BUZZER_PIN = 4;   // optional buzzer
-const int RESET_PIN  = 0;   // BOOT button → hold 3s to clear config
+const int ALERT_LED  = 8;   // built-in LED on ESP32-C3 Mini
+const int BUZZER_PIN = 4;   // optional buzzer (PWM pin)
+const int RESET_PIN  = 9;   // BOOT button on ESP32-C3
 
 // ── AP credentials ────────────────────────────────────────────
 const char* AP_SSID = "MediTrack-Setup";   // open network, no password
@@ -56,9 +56,9 @@ WebServer   server(80);
 MAX30105    sensor;
 
 // SpO2 buffers
-const byte  BUFFER_SIZE = 100;
-uint32_t    irBuffer[BUFFER_SIZE];
-uint32_t    redBuffer[BUFFER_SIZE];
+const byte  SPO2_BUF_SIZE = 100;
+uint32_t    irBuffer[SPO2_BUF_SIZE];
+uint32_t    redBuffer[SPO2_BUF_SIZE];
 
 // BPM window
 const int    WINDOW_SEC = 30;
@@ -197,7 +197,6 @@ void triggerCriticalAlert() {
   Serial.println("!!! CRITICAL ALERT — AMBULANCE TRIGGERED !!!");
   for (int i = 0; i < 15; i++) {
     digitalWrite(ALERT_LED, HIGH);
-    tone(BUZZER_PIN, 1000, 150);
     delay(150);
     digitalWrite(ALERT_LED, LOW);
     delay(100);
@@ -206,7 +205,6 @@ void triggerCriticalAlert() {
 
 void clearAlert() {
   digitalWrite(ALERT_LED, LOW);
-  noTone(BUZZER_PIN);
 }
 
 void sendToAPI(float bpmAvg, float spo2Avg) {
