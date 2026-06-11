@@ -24,7 +24,7 @@ class _SensorProvisionPageState extends State<SensorProvisionPage> {
   final _ssidCtrl    = TextEditingController();
   final _passCtrl    = TextEditingController();
   final _serverCtrl  = TextEditingController(
-      text: 'http://192.168.0.102:5098/api/vitalsigns/sensor');
+      text: 'http://192.168.1.6:5098/api/vitalsigns/sensor');
   bool _obscurePass  = true;
 
   // ── Operation state ───────────────────────────────────────

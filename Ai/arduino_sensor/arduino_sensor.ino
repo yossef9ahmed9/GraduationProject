@@ -1,25 +1,7 @@
 /*
   MediTrack MAX30102 Sensor — WiFi Provisioning Mode
   ====================================================
-  Hardware : ESP32 + MAX30102
-
-  FIRST BOOT (no config saved):
-    1. ESP32 starts as WiFi Access Point: "MediTrack-Setup" (no password)
-    2. Flutter app connects to it and POSTs:
-         POST http://192.168.4.1/provision
-         { "patientId": 14, "ssid": "HomeWiFi", "password": "pass123",
-           "serverUrl": "http://192.168.0.102:5098/api/vitalsigns/sensor" }
-    3. ESP32 saves config to Flash (Preferences), restarts in normal mode
-
-  NORMAL BOOT (config saved):
-    1. Connects to saved WiFi
-    2. Reads MAX30102 every 30s, POSTs averaged vitals to backend
-    3. RESET button (GPIO 0 / BOOT button) held 3s → clears config → back to AP mode
-
-  Libraries (install via Arduino Library Manager):
-    - "SparkFun MAX3010x Pulse and Proximity Sensor Library"
-    - "ArduinoJson" by Benoit Blanchon
-    - "Preferences" (built-in with ESP32 core)
+  Hardware : ESP32-C3 + MAX30102
 
   Wiring:
     MAX30102 VCC → 3.3V
@@ -34,55 +16,63 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <math.h>
 #include "MAX30105.h"
-#include "heartRate.h"
-#include "spo2_algorithm.h"
+#include "heartRate.h"      // checkForBeat()
 
 // ── Pins ──────────────────────────────────────────────────────
-const int ALERT_LED  = 8;   // built-in LED on ESP32-C3 Mini
-const int BUZZER_PIN = 4;   // optional buzzer (PWM pin)
-const int RESET_PIN  = 9;   // BOOT button on ESP32-C3
+const int ALERT_LED  = 2;
+const int BUZZER_PIN = 4;
+const int RESET_PIN  = 0;
 
 // ── AP credentials ────────────────────────────────────────────
-const char* AP_SSID = "MediTrack-Setup";   // open network, no password
+const char* AP_SSID = "MediTrack-Setup";
 
-// ── Saved config (loaded from Flash) ─────────────────────────
-String  savedSSID, savedPass, savedUrl;
-int     savedPatientId = 0;
+// ── Saved config ──────────────────────────────────────────────
+String savedSSID, savedPass, savedUrl;
+int    savedPatientId = 0;
 
 // ── Runtime ───────────────────────────────────────────────────
 Preferences prefs;
 WebServer   server(80);
 MAX30105    sensor;
 
-// SpO2 buffers
-const byte  SPO2_BUF_SIZE = 100;
-uint32_t    irBuffer[SPO2_BUF_SIZE];
-uint32_t    redBuffer[SPO2_BUF_SIZE];
+// ── BPM (beat-by-beat sliding window) ────────────────────────
+const byte RATE_SIZE = 8;
+byte  rates[RATE_SIZE];
+byte  rateSpot  = 0;
+byte  validRates = 0;
+long  lastBeat  = 0;
+float liveBpm   = 0;
+int   bpmAvg    = 0;
 
-// BPM window
-const int    WINDOW_SEC = 30;
-unsigned long windowStart = 0;
-float  bpmSum = 0, bpmMin = 999, bpmMax = 0;
-float  spo2Sum = 0, spo2Min = 100;
+// ── SpO2 (manual R-ratio + IIR filter) ───────────────────────
+const int SPO2_SAMPLES = 100;
+long  irBuffer[SPO2_SAMPLES];
+long  redBuffer[SPO2_SAMPLES];
+int   spo2Index    = 0;
+float spo2Filtered = 0;
+
+// ── 30-second reporting window ────────────────────────────────
+const int     WINDOW_SEC    = 30;
+unsigned long windowStart   = 0;
+unsigned long lastSnapshot  = 0;   // timestamp of last 1-second snapshot
+float  bpmSum    = 0;
+float  spo2Sum   = 0;
 int    sampleCount = 0;
 
-// IBI / HRV
-const byte IBI_SIZE = 20;
-float  ibiBuffer[IBI_SIZE];
-byte   ibiSpot = 0;
-bool   ibiBufferFull = false;
-long   lastBeat = 0;
+// ── Finger detection threshold ────────────────────────────────
+const long IR_FINGER_THRESHOLD = 30000;
 
-bool   configMode = false;   // true = AP provisioning mode
+bool configMode = false;
 
 
 // ═════════════════════════════════════════════════════════════
-// FLASH helpers
+// FLASH HELPERS
 // ═════════════════════════════════════════════════════════════
 
 bool loadConfig() {
-  prefs.begin("meditrack", true);   // read-only
+  prefs.begin("meditrack", true);
   savedSSID      = prefs.getString("ssid",      "");
   savedPass      = prefs.getString("pass",      "");
   savedUrl       = prefs.getString("url",       "");
@@ -92,8 +82,8 @@ bool loadConfig() {
 }
 
 void saveConfig(const String& ssid, const String& pass,
-                const String& url,  int patientId) {
-  prefs.begin("meditrack", false);  // read-write
+                const String& url, int patientId) {
+  prefs.begin("meditrack", false);
   prefs.putString("ssid",      ssid);
   prefs.putString("pass",      pass);
   prefs.putString("url",       url);
@@ -119,18 +109,15 @@ void startAPMode() {
   configMode = true;
   Serial.println("\n=== PROVISIONING MODE ===");
   Serial.println("AP: " + String(AP_SSID));
-
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID);   // open — no password
+  WiFi.softAP(AP_SSID);
   Serial.println("AP IP: " + WiFi.softAPIP().toString());
 
-  // Blink LED to signal AP mode
   for (int i = 0; i < 6; i++) {
     digitalWrite(ALERT_LED, HIGH); delay(200);
     digitalWrite(ALERT_LED, LOW);  delay(200);
   }
 
-  // ── POST /provision ──────────────────────────────────────
   server.on("/provision", HTTP_POST, []() {
     if (!server.hasArg("plain")) {
       server.send(400, "application/json", "{\"error\":\"No body\"}");
@@ -141,33 +128,27 @@ void startAPMode() {
       server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
       return;
     }
-
-    String  ssid      = doc["ssid"]      | "";
-    String  pass      = doc["password"]  | "";
-    String  url       = doc["serverUrl"] | "";
-    int     patientId = doc["patientId"] | 0;
+    String ssid      = doc["ssid"]      | "";
+    String pass      = doc["password"]  | "";
+    String url       = doc["serverUrl"] | "";
+    int    patientId = doc["patientId"] | 0;
 
     if (ssid.isEmpty() || patientId == 0) {
       server.send(400, "application/json",
                   "{\"error\":\"ssid and patientId are required\"}");
       return;
     }
-
-    // Default URL if not provided
-    if (url.isEmpty()) {
-      url = "http://192.168.0.102:5098/api/vitalsigns/sensor";
-    }
+    if (url.isEmpty())
+      url = "http://192.168.1.6:5098/api/vitalsigns/sensor";
 
     saveConfig(ssid, pass, url, patientId);
     server.send(200, "application/json",
                 "{\"message\":\"Config saved. Rebooting...\"}");
-
     Serial.println("Config received — rebooting in 1s");
     delay(1000);
     ESP.restart();
   });
 
-  // ── GET /status ──────────────────────────────────────────
   server.on("/status", HTTP_GET, []() {
     server.send(200, "application/json",
                 "{\"mode\":\"provisioning\",\"device\":\"MediTrack-ESP32\"}");
@@ -179,27 +160,102 @@ void startAPMode() {
 
 
 // ═════════════════════════════════════════════════════════════
-// NORMAL MODE helpers
+// ALGORITHM — SpO2 (manual R-ratio)
 // ═════════════════════════════════════════════════════════════
 
-float calculateHRV() {
-  int count = ibiBufferFull ? IBI_SIZE : ibiSpot;
-  if (count < 2) return 50.0;
-  float sumSq = 0;
-  for (int i = 1; i < count; i++) {
-    float diff = ibiBuffer[i] - ibiBuffer[i - 1];
-    sumSq += diff * diff;
+void calculateSpO2() {
+  // DC component
+  double irMean = 0, redMean = 0;
+  for (int i = 0; i < SPO2_SAMPLES; i++) {
+    irMean  += irBuffer[i];
+    redMean += redBuffer[i];
   }
-  return sqrt(sumSq / (count - 1));
+  irMean  /= SPO2_SAMPLES;
+  redMean /= SPO2_SAMPLES;
+
+  // AC component (RMS)
+  double irAC = 0, redAC = 0;
+  for (int i = 0; i < SPO2_SAMPLES; i++) {
+    irAC  += pow(irBuffer[i]  - irMean,  2);
+    redAC += pow(redBuffer[i] - redMean, 2);
+  }
+  irAC  = sqrt(irAC  / SPO2_SAMPLES);
+  redAC = sqrt(redAC / SPO2_SAMPLES);
+
+  if (irAC <= 0 || redAC <= 0 || irMean <= 0 || redMean <= 0) return;
+
+  // R ratio → empirical SpO2
+  double ratio = (redAC / redMean) / (irAC / irMean);
+  float  spo2  = 110.0 - 25.0 * ratio;
+
+  // Clamp
+  spo2 = constrain(spo2, 70.0, 100.0);
+
+  // Accept only valid range, then IIR smooth
+  if (spo2 >= 85.0 && spo2 <= 100.0) {
+    if (spo2Filtered == 0)
+      spo2Filtered = spo2;
+    else
+      spo2Filtered = (spo2Filtered * 0.85f) + (spo2 * 0.15f);
+  }
 }
+
+
+// ═════════════════════════════════════════════════════════════
+// ALGORITHM — per-sample processing
+// ═════════════════════════════════════════════════════════════
+
+void processSample(long ir, long red) {
+  // ── No finger ────────────────────────────────────────────
+  if (ir < IR_FINGER_THRESHOLD) {
+    liveBpm = 0; bpmAvg = 0; spo2Filtered = 0;
+    spo2Index = 0; lastBeat = 0; validRates = 0; rateSpot = 0;
+    for (byte i = 0; i < RATE_SIZE; i++) rates[i] = 0;
+    return;
+  }
+
+  // ── BPM (beat detection) ──────────────────────────────────
+  if (checkForBeat(ir)) {
+    long now   = millis();
+    long delta = now - lastBeat;
+
+    if (lastBeat > 0 && delta > 200 && delta < 2000) {
+      float currentBpm = 60000.0f / (float)delta;
+
+      if (currentBpm >= 40 && currentBpm <= 180) {
+        liveBpm = currentBpm;
+        rates[rateSpot++] = (byte)liveBpm;
+        rateSpot %= RATE_SIZE;
+        if (validRates < RATE_SIZE) validRates++;
+
+        long sum = 0;
+        for (byte i = 0; i < validRates; i++) sum += rates[i];
+        bpmAvg = sum / validRates;
+      }
+    }
+    lastBeat = now;
+  }
+
+  // ── SpO2 buffering ────────────────────────────────────────
+  irBuffer[spo2Index]  = ir;
+  redBuffer[spo2Index] = red;
+  spo2Index++;
+  if (spo2Index >= SPO2_SAMPLES) {
+    spo2Index = 0;
+    calculateSpO2();
+  }
+}
+
+
+// ═════════════════════════════════════════════════════════════
+// ALERT HELPERS
+// ═════════════════════════════════════════════════════════════
 
 void triggerCriticalAlert() {
   Serial.println("!!! CRITICAL ALERT — AMBULANCE TRIGGERED !!!");
   for (int i = 0; i < 15; i++) {
-    digitalWrite(ALERT_LED, HIGH);
-    delay(150);
-    digitalWrite(ALERT_LED, LOW);
-    delay(100);
+    digitalWrite(ALERT_LED, HIGH); delay(150);
+    digitalWrite(ALERT_LED, LOW);  delay(100);
   }
 }
 
@@ -207,7 +263,12 @@ void clearAlert() {
   digitalWrite(ALERT_LED, LOW);
 }
 
-void sendToAPI(float bpmAvg, float spo2Avg) {
+
+// ═════════════════════════════════════════════════════════════
+// API SEND
+// ═════════════════════════════════════════════════════════════
+
+void sendToAPI(float bpmToSend, float spo2ToSend) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected — skipping send.");
     return;
@@ -215,8 +276,8 @@ void sendToAPI(float bpmAvg, float spo2Avg) {
 
   StaticJsonDocument<128> doc;
   doc["patientId"]        = savedPatientId;
-  doc["heartRate"]        = (int)round(bpmAvg);
-  doc["oxygenSaturation"] = round(spo2Avg * 10.0) / 10.0;
+  doc["heartRate"]        = (int)round(bpmToSend);
+  doc["oxygenSaturation"] = round(spo2ToSend * 10.0) / 10.0;
 
   String body;
   serializeJson(doc, body);
@@ -230,7 +291,6 @@ void sendToAPI(float bpmAvg, float spo2Avg) {
   if (code == 200 || code == 201) {
     String resp = http.getString();
     Serial.println("Response: " + resp);
-
     StaticJsonDocument<256> res;
     if (!deserializeJson(res, resp)) {
       bool emergency  = res["isEmergency"]  | false;
@@ -240,12 +300,13 @@ void sendToAPI(float bpmAvg, float spo2Avg) {
         if (dispatched) Serial.println(">>> Ambulance dispatched!");
       } else {
         clearAlert();
+        Serial.println("✅ Normal reading saved.");
       }
     }
   } else {
     Serial.printf("API error: HTTP %d\n", code);
+    Serial.println(http.getString());
   }
-
   http.end();
 }
 
@@ -256,30 +317,21 @@ void sendToAPI(float bpmAvg, float spo2Avg) {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(ALERT_LED, OUTPUT);
+  pinMode(ALERT_LED,  OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(RESET_PIN, INPUT_PULLUP);
+  pinMode(RESET_PIN,  INPUT_PULLUP);
 
-  // Hold BOOT button on power-on → clear config
   delay(100);
   if (digitalRead(RESET_PIN) == LOW) {
-    Serial.println("RESET button held — clearing config...");
+    Serial.println("RESET held — clearing config in 3s...");
     delay(2900);
-    if (digitalRead(RESET_PIN) == LOW) {
-      clearConfig();   // never returns
-    }
+    if (digitalRead(RESET_PIN) == LOW) clearConfig();
   }
 
   bool hasConfig = loadConfig();
+  if (!hasConfig) { startAPMode(); return; }
 
-  if (!hasConfig) {
-    // ── No config → start AP provisioning mode ───────────
-    startAPMode();
-    return;
-  }
-
-  // ── Has config → normal sensor mode ─────────────────────
-  Serial.printf("\nPatient ID : %d\n", savedPatientId);
+  Serial.printf("\nPatient ID : %d\n",  savedPatientId);
   Serial.println("WiFi SSID  : " + savedSSID);
   Serial.println("Server URL : " + savedUrl);
 
@@ -289,25 +341,38 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED && tries < 30) {
     delay(500); Serial.print("."); tries++;
   }
-
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("\nWiFi failed — back to AP mode");
     startAPMode();
     return;
   }
-
   Serial.println("\nConnected: " + WiFi.localIP().toString());
   digitalWrite(ALERT_LED, HIGH); delay(300); digitalWrite(ALERT_LED, LOW);
 
-  // Init MAX30102
-  Wire.begin(8, 9); // SDA=8, SCL=9 for ESP32-C3
+  // ── Init MAX30102 ─────────────────────────────────────────
+  Wire.end();
+  delay(100);
+  Wire.begin(8, 9);          // SDA=8, SCL=9
+  Wire.setClock(400000);     // Fast mode
+  delay(200);
+
   if (!sensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("ERROR: MAX30102 not found. Check wiring!");
-    while (1);
+    while (1) {
+      digitalWrite(ALERT_LED, HIGH); delay(300);
+      digitalWrite(ALERT_LED, LOW);  delay(300);
+    }
   }
-  sensor.setup(60, 4, 2, 100, 411, 4096);
 
-  windowStart = millis();
+  // Lower brightness (0x1F), no averaging (1), 50 Hz sample rate
+  // → sharper peaks, better beat detection
+  sensor.setup(0x1F, 1, 2, 50, 411, 4096);
+  sensor.setPulseAmplitudeRed(0x1F);
+  sensor.setPulseAmplitudeIR(0x1F);
+  sensor.setPulseAmplitudeGreen(0);
+
+  windowStart  = millis();
+  lastSnapshot = millis();
   Serial.println("Sensor ready. Place finger firmly on sensor.");
 }
 
@@ -317,61 +382,53 @@ void setup() {
 // ═════════════════════════════════════════════════════════════
 
 void loop() {
-  // In AP mode — handle HTTP clients
-  if (configMode) {
-    server.handleClient();
-    return;
-  }
+  if (configMode) { server.handleClient(); return; }
 
-  // Check RESET button during normal operation (hold 3s)
   if (digitalRead(RESET_PIN) == LOW) {
-    Serial.println("RESET held — will clear config in 3s...");
+    Serial.println("RESET held — clearing in 3s...");
     delay(3000);
     if (digitalRead(RESET_PIN) == LOW) clearConfig();
   }
 
-  // Fill SpO2/HR buffer
-  for (byte i = 0; i < SPO2_BUF_SIZE; i++) {
-    while (!sensor.available()) sensor.check();
-    redBuffer[i] = sensor.getRed();
-    irBuffer[i]  = sensor.getIR();
+  // ── Drain sensor FIFO (non-blocking) ─────────────────────
+  sensor.check();
+  while (sensor.available()) {
+    long ir  = sensor.getIR();
+    long red = sensor.getRed();
     sensor.nextSample();
+    processSample(ir, red);
   }
 
-  int32_t spo2Val, hrVal;
-  int8_t  spo2Valid, hrValid;
-  maxim_heart_rate_and_oxygen_saturation(
-    irBuffer, SPO2_BUF_SIZE, redBuffer,
-    &spo2Val, &spo2Valid, &hrVal, &hrValid
-  );
+  // ── Snapshot every 1 second (if valid reading) ─────────────
+  // Collects one averaged sample per second over 30 seconds,
+  // then sends the 30-sample average to the API.
+  unsigned long now = millis();
+  if (now - lastSnapshot >= 1000UL) {
+    lastSnapshot = now;
 
-  if (hrValid && spo2Valid && hrVal > 20 && hrVal < 250) {
-    float bpm  = (float)hrVal;
-    float spo2 = (float)spo2Val;
-
-    long now = millis();
-    long ibi = now - lastBeat;
-    if (ibi > 300 && ibi < 2000) {
-      ibiBuffer[ibiSpot % IBI_SIZE] = (float)ibi;
-      ibiSpot++;
-      if (ibiSpot >= IBI_SIZE) ibiBufferFull = true;
+    if (bpmAvg > 0 && spo2Filtered > 0) {
+      bpmSum    += bpmAvg;
+      spo2Sum   += spo2Filtered;
+      sampleCount++;
+      Serial.printf("[%02d/30] BPM=%d | SpO2=%.1f%%\n",
+                    sampleCount, bpmAvg, spo2Filtered);
+    } else {
+      Serial.println("Waiting for valid reading...");
     }
-    lastBeat = now;
-
-    bpmSum  += bpm;   spo2Sum += spo2;
-    if (bpm  < bpmMin)  bpmMin  = bpm;
-    if (bpm  > bpmMax)  bpmMax  = bpm;
-    if (spo2 < spo2Min) spo2Min = spo2;
-    sampleCount++;
-
-    Serial.printf("BPM=%.0f | SpO2=%.1f%%\n", bpm, spo2);
   }
 
-  if ((millis() - windowStart) >= (WINDOW_SEC * 1000UL) && sampleCount > 0) {
-    sendToAPI(bpmSum / sampleCount, spo2Sum / sampleCount);
-    bpmSum = 0; bpmMin = 999; bpmMax = 0;
-    spo2Sum = 0; spo2Min = 100;
-    sampleCount = 0;
-    windowStart = millis();
+  // ── Send after 30-second window ──────────────────────────
+  if ((now - windowStart) >= (WINDOW_SEC * 1000UL)) {
+    if (sampleCount > 0) {
+      Serial.printf("=== 30s window: avg BPM=%d | avg SpO2=%.1f%% (%d samples) ===\n",
+                    (int)round(bpmSum / sampleCount),
+                    spo2Sum / sampleCount,
+                    sampleCount);
+      sendToAPI(bpmSum / sampleCount, spo2Sum / sampleCount);
+    } else {
+      Serial.println("=== 30s window: no valid samples — skipping send ===");
+    }
+    bpmSum = 0; spo2Sum = 0; sampleCount = 0;
+    windowStart = now;
   }
 }

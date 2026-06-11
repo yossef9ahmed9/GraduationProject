@@ -18,7 +18,7 @@ import 'package:meditrack/screens/pages/sensor_provision_page.dart';
 import 'package:meditrack/models/models.dart';
 
 // Base URL for profile pictures served by the backend
-const String _picBase = 'http://192.168.0.102:5098';
+const String _picBase = 'http://192.168.1.6:5098';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});

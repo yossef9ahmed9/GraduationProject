@@ -20,7 +20,7 @@
 const char* WIFI_SSID  = "YOUR_WIFI_NAME";
 const char* WIFI_PASS  = "YOUR_WIFI_PASSWORD";
 const int   PATIENT_ID = 1;
-const char* API_URL    = "http://192.168.0.102:5098/api/vitalsigns/sensor";
+const char* API_URL    = "http://192.168.1.6:5098/api/vitalsigns/sensor";
 // ─────────────────────────────────────────────────────────────
 
 const int ALERT_LED  = 8;   // ESP32-C3 Mini built-in LED
