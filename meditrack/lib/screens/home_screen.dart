@@ -356,9 +356,12 @@ class _SideDrawer extends StatelessWidget {
   Widget _logoIcon(bool isDark) => Container(
     width: 36, height: 36,
     decoration: BoxDecoration(
-        gradient: isDark ? AppColors.darkLogoGradient : AppColors.logoGradient,
+        color: Colors.black,
         borderRadius: BorderRadius.circular(10)),
-    child: const Icon(Icons.monitor_heart_outlined, color: Colors.white, size: 20));
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.asset('assets/images/logo.png', fit: BoxFit.contain),
+    ));
 
   @override
   Widget build(BuildContext context) {

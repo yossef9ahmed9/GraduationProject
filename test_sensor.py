@@ -26,7 +26,7 @@ from getpass import getpass
 from typing import Optional
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
-BASE_URL   = "http://192.168.1.6:5098/api"
+BASE_URL   = "http://192.168.0.102:5098/api"
 API_URL    = f"{BASE_URL}/vitalsigns/sensor"
 LOGIN_URL  = f"{BASE_URL}/auth/login"
 PATIENT_ID = 0       # 0 = use JWT mode

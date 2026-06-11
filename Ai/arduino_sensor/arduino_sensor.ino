@@ -8,7 +8,7 @@
     2. Flutter app connects to it and POSTs:
          POST http://192.168.4.1/provision
          { "patientId": 14, "ssid": "HomeWiFi", "password": "pass123",
-           "serverUrl": "http://192.168.1.6:5098/api/vitalsigns/sensor" }
+           "serverUrl": "http://192.168.0.102:5098/api/vitalsigns/sensor" }
     3. ESP32 saves config to Flash (Preferences), restarts in normal mode
 
   NORMAL BOOT (config saved):
@@ -24,8 +24,8 @@
   Wiring:
     MAX30102 VCC → 3.3V
     MAX30102 GND → GND
-    MAX30102 SDA → GPIO 21
-    MAX30102 SCL → GPIO 22
+    MAX30102 SDA → GPIO 8
+    MAX30102 SCL → GPIO 9
 */
 
 #include <Wire.h>
@@ -155,7 +155,7 @@ void startAPMode() {
 
     // Default URL if not provided
     if (url.isEmpty()) {
-      url = "http://192.168.1.6:5098/api/vitalsigns/sensor";
+      url = "http://192.168.0.102:5098/api/vitalsigns/sensor";
     }
 
     saveConfig(ssid, pass, url, patientId);
@@ -300,6 +300,7 @@ void setup() {
   digitalWrite(ALERT_LED, HIGH); delay(300); digitalWrite(ALERT_LED, LOW);
 
   // Init MAX30102
+  Wire.begin(8, 9); // SDA=8, SCL=9 for ESP32-C3
   if (!sensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("ERROR: MAX30102 not found. Check wiring!");
     while (1);
@@ -330,7 +331,7 @@ void loop() {
   }
 
   // Fill SpO2/HR buffer
-  for (byte i = 0; i < BUFFER_SIZE; i++) {
+  for (byte i = 0; i < SPO2_BUF_SIZE; i++) {
     while (!sensor.available()) sensor.check();
     redBuffer[i] = sensor.getRed();
     irBuffer[i]  = sensor.getIR();
@@ -340,7 +341,7 @@ void loop() {
   int32_t spo2Val, hrVal;
   int8_t  spo2Valid, hrValid;
   maxim_heart_rate_and_oxygen_saturation(
-    irBuffer, BUFFER_SIZE, redBuffer,
+    irBuffer, SPO2_BUF_SIZE, redBuffer,
     &spo2Val, &spo2Valid, &hrVal, &hrValid
   );
 

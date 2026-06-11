@@ -129,16 +129,17 @@ class _LoginScreenState extends State<LoginScreen>
                     Container(
                       width: 56, height: 56,
                       decoration: BoxDecoration(
-                          gradient: isDark
-                              ? AppColors.darkLogoGradient
-                              : AppColors.logoGradient,
+                          color: Colors.black,
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [BoxShadow(
                               color: AppColors.accent.withValues(alpha: 0.3),
                               blurRadius: 16,
                               offset: const Offset(0, 4))]),
-                      child: const Icon(Icons.monitor_heart_outlined,
-                          color: Colors.white, size: 28),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.asset('assets/images/logo.png',
+                            fit: BoxFit.contain),
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Text('MediTrack',

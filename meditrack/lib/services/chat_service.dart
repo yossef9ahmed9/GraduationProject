@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:signalr_netcore/signalr_client.dart';
 
-const String _hubUrl = 'http://192.168.1.6:5098/hubs/chat';
-const String _base   = 'http://192.168.1.6:5098/api';
+const String _hubUrl = 'http://192.168.0.102:5098/hubs/chat';
+const String _base   = 'http://192.168.0.102:5098/api';
 
 // ════════════════════════════════════════════════════════════════
 // CHAT MESSAGE MODEL

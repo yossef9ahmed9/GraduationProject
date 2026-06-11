@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 
 // Base URL for serving backend-hosted images
-const String _avatarBase = 'http://192.168.1.6:5098';
+const String _avatarBase = 'http://192.168.0.102:5098';
 
 // ── Avatar ────────────────────────────────────────────────────
 class AvatarWidget extends StatelessWidget {

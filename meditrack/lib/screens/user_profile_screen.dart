@@ -12,7 +12,7 @@ import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
 
-const String _picBase = 'http://192.168.1.6:5098';
+const String _picBase = 'http://192.168.0.102:5098';
 
 // ════════════════════════════════════════════════════════════════
 // UserProfileScreen — shows another user's public profile.

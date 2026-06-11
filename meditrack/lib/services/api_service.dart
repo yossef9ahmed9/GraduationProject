@@ -10,7 +10,7 @@ import 'package:meditrack/models/models.dart';
 // Change _base to your backend URL.
 // ════════════════════════════════════════════════════════════════
 
-const String _base = 'http://192.168.1.6:5098/api';
+const String _base = 'http://192.168.0.102:5098/api';
 // const String _base = 'http://localhost:5000/api'; // iOS simulator / web
 
 /// The root server URL (no /api suffix). Used for building static asset URLs.

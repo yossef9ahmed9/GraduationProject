@@ -20,7 +20,7 @@
 const char* WIFI_SSID  = "YOUR_WIFI_NAME";
 const char* WIFI_PASS  = "YOUR_WIFI_PASSWORD";
 const int   PATIENT_ID = 1;
-const char* API_URL    = "http://192.168.1.6:5098/api/vitalsigns/sensor";
+const char* API_URL    = "http://192.168.0.102:5098/api/vitalsigns/sensor";
 // ─────────────────────────────────────────────────────────────
 
 const int ALERT_LED  = 8;   // ESP32-C3 Mini built-in LED
@@ -65,6 +65,7 @@ void setup() {
   digitalWrite(ALERT_LED, HIGH); delay(300); digitalWrite(ALERT_LED, LOW);
 
   // Init MAX30102
+  Wire.begin(8, 9); // SDA=8, SCL=9 for ESP32-C3
   if (!sensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("ERROR: MAX30102 not found. Check wiring!");
     while (1);
