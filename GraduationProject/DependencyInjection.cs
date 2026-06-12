@@ -43,6 +43,7 @@ namespace GraduationProject
             services.AddScoped<IMedicalRecordService, MedicalRecordService>();
             // NEW: AI heart-risk model
             services.AddScoped<IHeartRiskService, HeartRiskService>();
+            services.AddScoped<IRatingService, RatingService>();
             services.AddHttpClient();
 
             services.Configure<EmailSettings>(configuration.GetSection(EmailSettings.SectionName));

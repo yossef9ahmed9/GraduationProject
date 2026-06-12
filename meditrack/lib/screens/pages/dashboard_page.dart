@@ -22,7 +22,8 @@ class DashboardPage extends StatelessWidget {
     final auth = context.watch<AuthProvider>();
     if (app.isLoading) return const Center(child: CircularProgressIndicator());
     return RefreshIndicator(
-      onRefresh: () => app.loadAll(role),
+      onRefresh: () => app.loadAll(role,
+          patientEmail: role == UserRole.patient ? auth.user?.email : null),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -87,38 +88,103 @@ class _PatientDash extends StatelessWidget {
 class _DoctorDash extends StatelessWidget {
   final AppProvider app;
   const _DoctorDash({required this.app});
+
   @override
   Widget build(BuildContext context) {
-    final emergency = app.emergencyVitals.length;
+    final emergencyVitals = app.emergencyVitals;
+    final emergencyCount  = emergencyVitals.length;
+
+    // Also include patients flagged isInEmergency even if vitals not yet loaded
+    final emergencyPatientIds = {
+      ...emergencyVitals.map((v) => v.patientId),
+      ...app.patients.where((p) => p.isInEmergency).map((p) => p.id),
+    };
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _WelcomeBanner(icon: Icons.medical_services_outlined, text: 'Doctor dashboard — Manage your patients and medical records.'),
+      _WelcomeBanner(
+          icon: Icons.medical_services_outlined,
+          text: 'Doctor dashboard — Manage your patients and medical records.'),
       const SizedBox(height: 16),
-      if (emergency > 0) ...[
-        EmergencyBanner(text: '${app.emergencyVitals.first.patientName} — ${_emergencyDesc(app.emergencyVitals.first)}',
-          onViewVitals: () => HomeNavigator.go(context, 'vitals')),
-        const SizedBox(height: 12),
+
+      // ── Emergency banners — one per patient in emergency ──
+      if (emergencyPatientIds.isNotEmpty) ...[
+        ...emergencyPatientIds.map((pid) {
+          final vital   = app.latestVitalForPatient(pid);
+          final patient = app.patients.where((p) => p.id == pid).firstOrNull;
+          final name    = patient?.name ?? vital?.patientName ?? 'Patient #$pid';
+          final desc    = vital != null ? _emergencyDesc(vital) : '🚨 Emergency status';
+          final dispatch = app.activeDispatches
+              .where((d) => d.patientId == pid)
+              .firstOrNull;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _EmergencyPatientBanner(
+              patientName:    name,
+              description:    desc,
+              dispatchStatus: dispatch?.status,
+              onViewVitals:   () => HomeNavigator.go(context, 'vitals'),
+            ),
+          );
+        }),
+        const SizedBox(height: 4),
       ],
+
+      // ── Stats ──────────────────────────────────────────────
       Row(children: [
-        Expanded(child: StatCard(label: 'Patients', value: '${app.patients.length}', subtitle: 'Registered')),
+        Expanded(child: StatCard(
+            label: 'Patients',
+            value: '${app.patients.length}',
+            subtitle: 'Registered')),
         const SizedBox(width: 12),
-        Expanded(child: StatCard(label: 'Follow-ups', value: '${app.followUps.length}', subtitle: 'Active records')),
+        Expanded(child: StatCard(
+            label: 'Follow-ups',
+            value: '${app.followUps.length}',
+            subtitle: 'Active records')),
         const SizedBox(width: 12),
-        Expanded(child: StatCard(label: 'Alerts', value: '$emergency', subtitle: 'Elevated vitals',
-          valueColor: emergency > 0 ? AppColors.badgeRedTxt : null)),
+        Expanded(child: StatCard(
+            label: 'Alerts',
+            value: '$emergencyCount',
+            subtitle: 'Elevated vitals',
+            valueColor: emergencyCount > 0 ? AppColors.badgeRedTxt : null)),
       ]),
       const SizedBox(height: 16),
+
+      // ── Patient list — with inline HR + emergency badge ──
       AppCard(child: Column(children: [
-        CardHeader(title: 'Patients', trailing: TextButton(onPressed: () => HomeNavigator.go(context, 'patients'),
-          child: Text('View all', style: GoogleFonts.dmSans(fontSize: 12)))),
-        if (app.patients.isEmpty) const EmptyState(message: 'No patients')
-        else ...app.patients.take(5).map((p) => _PatientRow(patient: p)),
+        CardHeader(
+          title: 'Patients',
+          trailing: TextButton(
+            onPressed: () => HomeNavigator.go(context, 'patients'),
+            child: Text('View all', style: GoogleFonts.dmSans(fontSize: 12)),
+          ),
+        ),
+        if (app.patients.isEmpty)
+          const EmptyState(message: 'No patients')
+        else
+          ...app.patients.take(5).map((p) => _PatientRow(
+                patient:     p,
+                latestVital: app.latestVitalForPatient(p.id),
+              )),
       ])),
       const SizedBox(height: 12),
+
+      // ── Recent follow-ups ──────────────────────────────────
       AppCard(child: Column(children: [
-        CardHeader(title: 'Recent Follow-ups', trailing: TextButton(onPressed: () => HomeNavigator.go(context, 'followups'),
-          child: Text('View all', style: GoogleFonts.dmSans(fontSize: 12)))),
-        if (app.followUps.isEmpty) const EmptyState(message: 'No follow-ups')
-        else ...app.followUps.take(4).map((f) => _FollowUpRow(followUp: f, patientName: app.patientName(f.patientId), showDoctor: false)),
+        CardHeader(
+          title: 'Recent Follow-ups',
+          trailing: TextButton(
+            onPressed: () => HomeNavigator.go(context, 'followups'),
+            child: Text('View all', style: GoogleFonts.dmSans(fontSize: 12)),
+          ),
+        ),
+        if (app.followUps.isEmpty)
+          const EmptyState(message: 'No follow-ups')
+        else
+          ...app.followUps.take(4).map((f) => _FollowUpRow(
+                followUp:    f,
+                patientName: app.patientName(f.patientId),
+                showDoctor:  false,
+              )),
       ])),
     ]);
   }
@@ -156,25 +222,103 @@ class _LabDash extends StatelessWidget {
 class _RelativeDash extends StatelessWidget {
   final AppProvider app;
   const _RelativeDash({required this.app});
+
   @override
   Widget build(BuildContext context) {
-    final linked = app.patients.isNotEmpty ? app.patients.first : null;
-    final latest = linked != null ? app.latestVitalForPatient(linked.id) : null;
-    final hrHigh = (latest?.heartRate ?? 0) > 100;
+    final linked  = app.patients.isNotEmpty ? app.patients.first : null;
+    final latest  = linked != null ? app.latestVitalForPatient(linked.id) : null;
+
+    // Emergency = either the backend flag OR the latest vital reading is alert
+    final isEmergency = (linked?.isInEmergency ?? false) ||
+        (latest?.isAlert ?? false);
+
+    final hrHigh  = (latest?.heartRate ?? 0) > 100;
+    final spo2Low = (latest?.oxygenSaturation ?? 100) < 95;
+
+    // Any active dispatch for the linked patient
+    final dispatch = linked != null
+        ? app.activeDispatches
+            .where((d) => d.patientId == linked.id)
+            .firstOrNull
+        : null;
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _WelcomeBanner(icon: Icons.home_outlined, text: 'Home — Monitoring health status for your linked patient.'),
+      _WelcomeBanner(
+          icon: Icons.home_outlined,
+          text: 'Home — Monitoring health status for your linked patient.'),
       const SizedBox(height: 16),
-      if (hrHigh) ...[
-        EmergencyBanner(text: '${linked?.name ?? 'Patient'} — Heart rate ${latest!.heartRate} bpm (elevated)',
-          onViewVitals: () => HomeNavigator.go(context, 'vitals')),
+
+      // ── Emergency banner (uses all signals) ───────────────
+      if (isEmergency && linked != null) ...[
+        _EmergencyPatientBanner(
+          patientName:    linked.name,
+          description:    latest != null
+              ? _emergencyDesc(latest)
+              : '🚨 Emergency status reported',
+          dispatchStatus: dispatch?.status,
+          onViewVitals:   () => HomeNavigator.go(context, 'vitals'),
+        ),
         const SizedBox(height: 12),
       ],
+
+      // ── Dispatch status card ───────────────────────────────
+      if (dispatch != null) ...[
+        _DispatchStatusCard(dispatch: dispatch, app: app),
+        const SizedBox(height: 12),
+      ],
+
+      // ── Stat cards ─────────────────────────────────────────
       Row(children: [
-        Expanded(child: StatCard(label: 'Linked Patient', value: linked?.name ?? '—', subtitle: 'Patient #${linked?.id ?? '—'}')),
+        Expanded(child: StatCard(
+            label:    'Linked Patient',
+            value:    linked?.name ?? '—',
+            subtitle: 'Patient #${linked?.id ?? '—'}')),
         const SizedBox(width: 12),
-        Expanded(child: StatCard(label: 'Heart Rate', value: latest != null ? '${latest.heartRate}' : '—',
-          subtitle: 'bpm · latest', valueColor: hrHigh ? AppColors.badgeRedTxt : null)),
+        Expanded(child: StatCard(
+            label:      'Heart Rate',
+            value:      latest != null ? '${latest.heartRate}' : '—',
+            subtitle:   'bpm · latest',
+            valueColor: hrHigh ? AppColors.badgeRedTxt : null)),
       ]),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(child: StatCard(
+            label:      'SpO₂',
+            value:      latest?.oxygenSaturation != null
+                ? '${latest!.oxygenSaturation!.toStringAsFixed(1)}%'
+                : '—',
+            subtitle:   'Oxygen · latest',
+            valueColor: spo2Low ? AppColors.badgeRedTxt : null)),
+        const SizedBox(width: 12),
+        Expanded(child: StatCard(
+            label:      'Status',
+            value:      isEmergency ? '🚨' : '✓',
+            subtitle:   isEmergency ? 'Emergency' : 'Normal',
+            valueColor: isEmergency ? AppColors.badgeRedTxt : AppColors.badgeGreenTxt)),
+      ]),
+
+      // ── Follow-ups for this patient ────────────────────────
+      if (linked != null) ...[
+        const SizedBox(height: 12),
+        AppCard(child: Column(children: [
+          CardHeader(
+            title: 'Follow-ups',
+            trailing: TextButton(
+              onPressed: () => HomeNavigator.go(context, 'followups'),
+              child: Text('View all', style: GoogleFonts.dmSans(fontSize: 12)),
+            ),
+          ),
+          ...(){
+            final fups = app.followUpsForPatient(linked.id);
+            if (fups.isEmpty) return [const EmptyState(message: 'No follow-ups')];
+            return fups.take(3).map((f) => _FollowUpRow(
+                  followUp:   f,
+                  showPatient: false,
+                  doctorName: app.doctorName(f.doctorId),
+                )).toList();
+          }(),
+        ])),
+      ],
     ]);
   }
 }
@@ -639,26 +783,294 @@ class _WelcomeBanner extends StatelessWidget {
 }
 
 class _PatientRow extends StatelessWidget {
-  final PatientResponse patient;
-  const _PatientRow({required this.patient});
+  final PatientResponse      patient;
+  final VitalSignsResponse?  latestVital;
+  const _PatientRow({required this.patient, this.latestVital});
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    final isDark      = Theme.of(context).brightness == Brightness.dark;
+    final isEmergency = patient.isInEmergency || (latestVital?.isAlert ?? false);
+    final hr          = latestVital?.heartRate;
+    final hrHigh      = (hr ?? 0) > 100;
+    final hrLow       = (hr ?? 999) < 60 && (hr ?? 999) > 0;
+    final hrAlert     = hrHigh || hrLow;
+    final spo2        = latestVital?.oxygenSaturation;
+    final spo2Low     = (spo2 ?? 100) < 95;
+
+    return Container(
+      decoration: isEmergency
+          ? BoxDecoration(
+              color: isDark
+                  ? AppColors.darkEmergencyBg.withValues(alpha: 0.5)
+                  : AppColors.emergencyBg.withValues(alpha: 0.5),
+              border: Border(
+                left: BorderSide(
+                  color: isDark ? AppColors.darkEmergencyBdr : AppColors.emergencyBdr,
+                  width: 3,
+                ),
+              ),
+            )
+          : null,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(children: [
-        AvatarWidget(initials: patient.initials, photoUrl: patient.profilePictureUrl),
+        // Avatar with emergency pulse indicator
+        Stack(clipBehavior: Clip.none, children: [
+          AvatarWidget(
+              initials: patient.initials,
+              photoUrl: patient.profilePictureUrl),
+          if (isEmergency)
+            Positioned(
+              top: -2, right: -2,
+              child: Container(
+                width: 10, height: 10,
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+        ]),
         const SizedBox(width: 10),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(patient.name, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w500)),
-          Text(patient.email, style: GoogleFonts.dmSans(fontSize: 11.5,
-              color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+        // Name + email
+        Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(patient.name,
+                  style: GoogleFonts.dmSans(
+                      fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+            if (isEmergency)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.warning_amber_rounded,
+                    size: 14,
+                    color: isDark
+                        ? AppColors.darkEmergencyIco
+                        : AppColors.emergencyIco),
+              ),
+          ]),
+          Text(patient.email,
+              style: GoogleFonts.dmSans(
+                  fontSize: 11.5,
+                  color: isDark
+                      ? AppColors.darkTextSecondary
+                      : AppColors.textSecondary)),
+          // Vitals row
+          if (latestVital != null) ...[
+            const SizedBox(height: 3),
+            Row(children: [
+              Icon(Icons.favorite_rounded,
+                  size: 11,
+                  color: hrAlert
+                      ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                      : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+              const SizedBox(width: 3),
+              Text(
+                '${latestVital!.heartRate} bpm',
+                style: GoogleFonts.dmSans(
+                    fontSize: 11,
+                    fontWeight: hrAlert ? FontWeight.w700 : FontWeight.w400,
+                    color: hrAlert
+                        ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                        : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+              ),
+              if (spo2 != null) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.water_drop_rounded,
+                    size: 11,
+                    color: spo2Low
+                        ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                        : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+                const SizedBox(width: 3),
+                Text(
+                  '${spo2.toStringAsFixed(1)}%',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 11,
+                      fontWeight: spo2Low ? FontWeight.w700 : FontWeight.w400,
+                      color: spo2Low
+                          ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                          : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+                ),
+              ],
+            ]),
+          ],
         ])),
-        BadgeWidget(label: patient.gender.isNotEmpty ? patient.gender[0].toUpperCase() + patient.gender.substring(1) : '—',
-          type: patient.gender == 'female' ? BadgeType.blue : BadgeType.green),
-      ]));
+        const SizedBox(width: 6),
+        // Gender badge or emergency badge
+        if (isEmergency)
+          BadgeWidget(label: '🚨 SOS', type: BadgeType.red)
+        else
+          BadgeWidget(
+              label: patient.gender.isNotEmpty
+                  ? patient.gender[0].toUpperCase() + patient.gender.substring(1)
+                  : '—',
+              type: patient.gender == 'female' ? BadgeType.blue : BadgeType.green),
+      ]),
+    );
   }
 }
 
+// ── Emergency patient banner (richer than plain EmergencyBanner) ─
+class _EmergencyPatientBanner extends StatelessWidget {
+  final String  patientName;
+  final String  description;
+  final String? dispatchStatus; // null = no dispatch, otherwise Pending/OnTheWay/Arrived
+  final VoidCallback? onViewVitals;
+  const _EmergencyPatientBanner({
+    required this.patientName,
+    required this.description,
+    this.dispatchStatus,
+    this.onViewVitals,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Dispatch status label + color
+    String? ambLabel;
+    Color?  ambColor;
+    if (dispatchStatus == 'Pending') {
+      ambLabel = 'Ambulance requested';
+      ambColor = const Color(0xFFF59E0B);
+    } else if (dispatchStatus == 'OnTheWay') {
+      ambLabel = '🚑 Ambulance on the way';
+      ambColor = const Color(0xFF3B82F6);
+    } else if (dispatchStatus == 'Arrived') {
+      ambLabel = '🏥 Ambulance arrived';
+      ambColor = const Color(0xFF10B981);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkEmergencyBg : AppColors.emergencyBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: isDark ? AppColors.darkEmergencyBdr : AppColors.emergencyBdr),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.warning_amber_rounded,
+              size: 15,
+              color: isDark ? AppColors.darkEmergencyIco : AppColors.emergencyIco),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '$patientName — $description',
+              style: GoogleFonts.dmSans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: isDark
+                      ? AppColors.darkEmergencyTxt
+                      : AppColors.emergencyTxt),
+            ),
+          ),
+          if (onViewVitals != null)
+            TextButton(
+              onPressed: onViewVitals,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text('Vitals',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppColors.darkAccent : AppColors.accent)),
+            ),
+        ]),
+        if (ambLabel != null) ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            const SizedBox(width: 21),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: ambColor!.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: ambColor.withValues(alpha: 0.4)),
+              ),
+              child: Text(ambLabel,
+                  style: GoogleFonts.dmSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: ambColor)),
+            ),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Dispatch status card for Relative dashboard ───────────────
+class _DispatchStatusCard extends StatelessWidget {
+  final EmergencyDispatchResponse dispatch;
+  final AppProvider               app;
+  const _DispatchStatusCard({required this.dispatch, required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final status = dispatch.status;
+
+    Color  borderColor;
+    Color  bgColor;
+    IconData icon;
+    String label;
+
+    if (status == 'Pending') {
+      borderColor = const Color(0xFFF59E0B);
+      bgColor     = const Color(0xFFFFFBEB);
+      icon        = Icons.access_time_rounded;
+      label       = 'Ambulance requested — waiting for response';
+    } else if (status == 'OnTheWay') {
+      borderColor = const Color(0xFF3B82F6);
+      bgColor     = const Color(0xFFEFF6FF);
+      icon        = Icons.directions_car_rounded;
+      label       = '🚑 Ambulance is on the way';
+    } else {
+      borderColor = const Color(0xFF10B981);
+      bgColor     = const Color(0xFFECFDF5);
+      icon        = Icons.local_hospital_rounded;
+      label       = '🏥 Ambulance has arrived';
+    }
+
+    if (isDark) {
+      bgColor     = bgColor.withValues(alpha: 0.07);
+      borderColor = borderColor.withValues(alpha: 0.6);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(children: [
+        Icon(icon, color: borderColor, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(label,
+              style: GoogleFonts.dmSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: borderColor)),
+        ),
+      ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 class _FollowUpRow extends StatelessWidget {
   final FollowUpResponse followUp;
   final String? patientName; final String? doctorName;

@@ -1222,6 +1222,25 @@ class ApiService {
         return (62  + rng % 34, 96.0 + (rng % 35) / 10);
     }
   }
+
+  // ── Ratings ───────────────────────────────────────────────────
+
+  /// Submit or update a rating for a doctor or lab.
+  /// POST /api/ratings  { stars, doctorId? OR labId? }
+  Future<ApiResult<RatingResponse>> submitRating(RatingRequest request) =>
+      _post('/ratings', request.toJson(),
+          (j) => RatingResponse.fromJson(j as Map<String, dynamic>));
+
+  /// Get the current patient's rating for a specific doctor or lab.
+  /// GET /api/ratings/my?doctorId=7  OR  ?labId=2
+  Future<ApiResult<RatingResponse>> getMyRating({int? doctorId, int? labId}) {
+    final params = <String, String>{};
+    if (doctorId != null) params['doctorId'] = '$doctorId';
+    if (labId    != null) params['labId']    = '$labId';
+    final query = params.entries.map((e) => '${e.key}=${e.value}').join('&');
+    return _get('/ratings/my?$query',
+        (j) => RatingResponse.fromJson(j as Map<String, dynamic>));
+  }
 }
 
 // Global singleton

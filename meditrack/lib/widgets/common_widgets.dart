@@ -370,6 +370,244 @@ class PrimaryButton extends StatelessWidget {
   }
 }
 
+// ── Emergency Alert Dialog ────────────────────────────────────
+class EmergencyAlertDialog extends StatefulWidget {
+  final String patientName;
+  final String message;
+  final VoidCallback? onDismiss;
+  final VoidCallback? onAction;
+  final String actionLabel;
+
+  const EmergencyAlertDialog({
+    super.key,
+    required this.patientName,
+    required this.message,
+    this.onDismiss,
+    this.onAction,
+    this.actionLabel = 'View Details',
+  });
+
+  /// Shows the emergency dialog centered on screen.
+  static Future<void> show(
+    BuildContext context, {
+    required String patientName,
+    required String message,
+    VoidCallback? onAction,
+    String actionLabel = 'View Details',
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (_) => EmergencyAlertDialog(
+        patientName: patientName,
+        message: message,
+        onAction: onAction,
+        actionLabel: actionLabel,
+        onDismiss: () => Navigator.of(context, rootNavigator: true).pop(),
+      ),
+    );
+  }
+
+  @override
+  State<EmergencyAlertDialog> createState() => _EmergencyAlertDialogState();
+}
+
+class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _pulse = Tween<double>(begin: 1.0, end: 1.12).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Colors — always red regardless of theme
+    const redDeep   = Color(0xFF7F1D1D);   // dark red bg in dark mode
+    const redBg     = Color(0xFFFEF2F2);   // light red bg in light mode
+    const redBorder = Color(0xFFEF4444);   // vivid red border
+    const redVivid  = Color(0xFFDC2626);   // icon / accent
+    const redText   = Color(0xFF991B1B);   // body text light
+    const redTextDk = Color(0xFFFCA5A5);   // body text dark
+    const redTitle  = Color(0xFFB91C1C);   // title light
+    const redTitleDk= Color(0xFFF87171);   // title dark
+
+    final bgColor     = isDark ? const Color(0xFF1A0A0A) : redBg;
+    final titleColor  = isDark ? redTitleDk : redTitle;
+    final textColor   = isDark ? redTextDk  : redText;
+    final borderColor = isDark ? redBorder.withOpacity(0.55) : redBorder.withOpacity(0.45);
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 0),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: redVivid.withOpacity(isDark ? 0.35 : 0.18),
+                blurRadius: 32,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Header ──
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+                decoration: BoxDecoration(
+                  color: redVivid.withOpacity(isDark ? 0.18 : 0.08),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+                  border: Border(
+                    bottom: BorderSide(color: borderColor),
+                  ),
+                ),
+                child: Row(children: [
+                  // Pulsing icon
+                  ScaleTransition(
+                    scale: _pulse,
+                    child: Container(
+                      width: 34, height: 34,
+                      decoration: BoxDecoration(
+                        color: redVivid.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: redVivid.withOpacity(0.4)),
+                      ),
+                      child: const Icon(
+                        Icons.emergency_rounded,
+                        color: redVivid,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'EMERGENCY ALERT',
+                          style: GoogleFonts.dmSans(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: redVivid,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        Text(
+                          widget.patientName,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: titleColor,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Close X
+                  InkWell(
+                    onTap: widget.onDismiss ?? () => Navigator.of(context).pop(),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(Icons.close_rounded, size: 18, color: textColor),
+                    ),
+                  ),
+                ]),
+              ),
+
+              // ── Body ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.message,
+                      style: GoogleFonts.dmSans(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: textColor,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ── Actions ──
+                    Row(children: [
+                      // Dismiss
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: widget.onDismiss ?? () => Navigator.of(context).pop(),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: textColor,
+                            side: BorderSide(color: borderColor),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            textStyle: GoogleFonts.dmSans(
+                                fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          child: const Text('Dismiss'),
+                        ),
+                      ),
+                      if (widget.onAction != null) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: widget.onAction,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: redVivid,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              elevation: 0,
+                              textStyle: GoogleFonts.dmSans(
+                                  fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            child: Text(widget.actionLabel),
+                          ),
+                        ),
+                      ],
+                    ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Section Header ────────────────────────────────────────────
 class SectionHeader extends StatelessWidget {
   final String label;

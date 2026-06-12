@@ -14,6 +14,17 @@ namespace GraduationProject.Services
                 .Select(u => new { u.Email, u.ProfilePictureUrl })
                 .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, ct);
 
+        // Fetch average rating + count for a list of lab ids
+        private async Task<Dictionary<int, (double avg, int count)>> GetRatingMapAsync(
+            IEnumerable<int> labIds, CancellationToken ct) =>
+            (await _context.Ratings
+                .AsNoTracking()
+                .Where(r => r.LabId.HasValue && labIds.Contains(r.LabId!.Value))
+                .GroupBy(r => r.LabId!.Value)
+                .Select(g => new { LabId = g.Key, Avg = g.Average(r => r.Stars), Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.LabId, x => (x.Avg, x.Count));
+
         public async Task<PagedResponse<LabResponse>> GetAllAsync(
             int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
@@ -27,11 +38,18 @@ namespace GraduationProject.Services
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
 
-            var picMap = await GetPicMapAsync(labs.Select(l => l.Email), cancellationToken);
+            var picMap    = await GetPicMapAsync(labs.Select(l => l.Email), cancellationToken);
+            var ratingMap = await GetRatingMapAsync(labs.Select(l => l.Id), cancellationToken);
 
-            var items = labs.Select(l => l.Adapt<LabResponse>() with
+            var items = labs.Select(l =>
             {
-                ProfilePictureUrl = picMap.GetValueOrDefault(l.Email)
+                var (avg, count) = ratingMap.GetValueOrDefault(l.Id, (0, 0));
+                return l.Adapt<LabResponse>() with
+                {
+                    ProfilePictureUrl = picMap.GetValueOrDefault(l.Email),
+                    AverageRating     = Math.Round(avg, 1),
+                    RatingCount       = count,
+                };
             }).ToList();
 
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
@@ -51,10 +69,15 @@ namespace GraduationProject.Services
             if (lab is null)
                 return Result.Failure<LabResponse>(LabErrors.LabNotFound);
 
-            var picMap = await GetPicMapAsync([lab.Email], cancellationToken);
+            var picMap    = await GetPicMapAsync([lab.Email], cancellationToken);
+            var ratingMap = await GetRatingMapAsync([lab.Id], cancellationToken);
+            var (avg, count) = ratingMap.GetValueOrDefault(lab.Id, (0, 0));
+
             var response = lab.Adapt<LabResponse>() with
             {
-                ProfilePictureUrl = picMap.GetValueOrDefault(lab.Email)
+                ProfilePictureUrl = picMap.GetValueOrDefault(lab.Email),
+                AverageRating     = Math.Round(avg, 1),
+                RatingCount       = count,
             };
             return Result.Success(response);
         }

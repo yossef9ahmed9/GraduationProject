@@ -6,8 +6,11 @@ namespace GraduationProject.Contracts.Labs
         string Location,
         string Phone,
         string Email,
-        double? Latitude  = null,
-        double? Longitude = null,
-        string? ProfilePictureUrl = null
+        double? Latitude          = null,
+        double? Longitude         = null,
+        string? ProfilePictureUrl = null,
+        double  AverageRating     = 0,
+        int     RatingCount       = 0,
+        double? MyRating          = null
     );
 }

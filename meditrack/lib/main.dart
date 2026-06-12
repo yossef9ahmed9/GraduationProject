@@ -100,7 +100,8 @@ class _SplashState extends State<_Splash> with SingleTickerProviderStateMixin {
     if (!mounted) return;
 
     if (restored) {
-      await app.loadAll(auth.role);
+      await app.loadAll(auth.role,
+          patientEmail: auth.role == UserRole.patient ? auth.user?.email : null);
       await chatService.connect(auth.user!.token, auth.user!.email);
       notifs.init(auth.user!.email);
       await fcmService.init(
@@ -109,6 +110,11 @@ class _SplashState extends State<_Splash> with SingleTickerProviderStateMixin {
       );
       fcmService.onMessageReceived = (title, body, data) {
         notifs.addFromFcm(title: title, body: body, data: data);
+        // Emergency push → refresh myVitals immediately for instant vignette
+        if (data['type'] == 'emergency' && auth.role == UserRole.patient) {
+          final patient = app.patientByEmail(auth.user!.email);
+          if (patient != null) app.refreshMyVitals(patient.id);
+        }
       };
       if (auth.role == UserRole.patient) {
         final patient = app.patientByEmail(auth.user!.email);

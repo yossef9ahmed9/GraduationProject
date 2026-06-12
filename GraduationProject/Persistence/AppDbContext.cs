@@ -20,6 +20,7 @@ namespace GraduationProject.Presistence
         public DbSet<ChatMessage> ChatMessages { get; set; }
         public DbSet<RelativePatientRequest> RelativePatientRequests { get; set; }
         public DbSet<MedicalRecordEntry> MedicalRecordEntries { get; set; }
+        public DbSet<Rating> Ratings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -167,6 +168,40 @@ namespace GraduationProject.Presistence
                     .WithMany()
                     .HasForeignKey(x => x.LabId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Rating — one patient rating per target (doctor or lab), upsert semantics
+            modelBuilder.Entity<Rating>(b =>
+            {
+                b.HasKey(x => x.Id);
+
+                b.Property(x => x.Stars)
+                    .IsRequired();
+
+                b.HasOne(x => x.Patient)
+                    .WithMany()
+                    .HasForeignKey(x => x.PatientId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                b.HasOne(x => x.Doctor)
+                    .WithMany()
+                    .HasForeignKey(x => x.DoctorId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                b.HasOne(x => x.Lab)
+                    .WithMany()
+                    .HasForeignKey(x => x.LabId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                // Unique: one rating per patient per doctor
+                b.HasIndex(x => new { x.PatientId, x.DoctorId })
+                    .IsUnique()
+                    .HasFilter("[DoctorId] IS NOT NULL");
+
+                // Unique: one rating per patient per lab
+                b.HasIndex(x => new { x.PatientId, x.LabId })
+                    .IsUnique()
+                    .HasFilter("[LabId] IS NOT NULL");
             });
 
         }

@@ -18,13 +18,19 @@ class AppProvider extends ChangeNotifier {
   List<LabAppointmentResponse> labAppointments = [];
   List<AmbulanceResponse> ambulances = [];
 
+  // ── Patient-role own vitals (loaded separately since getAllVitals is admin-only)
+  // Kept fresh by HomeScreen polling every 20 s.
+  List<VitalSignsResponse> myVitals = [];
+
   bool isLoading = false;
   bool isOnline = true;
   String? loadError;
 
   // ── Load all data in parallel ─────────────────────────────────
 
-  Future<void> loadAll(UserRole role) async {
+  /// [patientEmail] — pass the logged-in patient's email when role == patient
+  /// so myVitals gets refreshed in the same call (no extra trip needed).
+  Future<void> loadAll(UserRole role, {String? patientEmail}) async {
     isLoading = true;
     loadError = null;
     notifyListeners();
@@ -104,6 +110,16 @@ class AppProvider extends ChangeNotifier {
         loadError = ambRes.error ?? 'Failed to load ambulances.';
       } else if (!dispRes.ok) {
         loadError = dispRes.error ?? 'Failed to load dispatches.';
+      }
+
+      // For patient role: also refresh myVitals so emergency vignette/dialog
+      // react immediately on any page refresh — not just in VitalsPage.
+      if (role == UserRole.patient && patientEmail != null) {
+        final me = patientByEmail(patientEmail);
+        if (me != null) {
+          final vRes = await apiService.getVitalsByPatient(me.id);
+          if (vRes.ok) myVitals = vRes.data ?? [];
+        }
       }
     } catch (e) {
       loadError = e.toString();
@@ -190,6 +206,30 @@ class AppProvider extends ChangeNotifier {
         ? await apiService.getVitalsByPatient(patientId)
         : await apiService.getAllVitals();
     if (res.ok) { vitals = res.data ?? []; notifyListeners(); }
+  }
+
+  /// Refresh this patient's own vitals (used by patient role polling).
+  Future<void> refreshMyVitals(int patientId) async {
+    final res = await apiService.getVitalsByPatient(patientId);
+    if (res.ok) { myVitals = res.data ?? []; notifyListeners(); }
+  }
+
+  /// Update myVitals directly from already-fetched data (no extra API call).
+  /// Called by VitalsPage after it loads vitals so the HomeScreen reacts instantly.
+  void updateMyVitals(List<VitalSignsResponse> data) {
+    myVitals = data;
+    notifyListeners();
+  }
+
+  /// Update shared vitals for a specific patient (used by doctor/admin VitalsPage).
+  /// Replaces that patient's entries in the main vitals list so emergencyVitals
+  /// reflects the latest readings immediately without waiting for polling.
+  void updateVitalsForPatient(int patientId, List<VitalSignsResponse> data) {
+    vitals = [
+      ...vitals.where((v) => v.patientId != patientId),
+      ...data,
+    ];
+    notifyListeners();
   }
 
   Future<void> refreshDispatches({UserRole? role, String? myEmail}) async {
@@ -283,7 +323,9 @@ class AppProvider extends ChangeNotifier {
   }
 
   List<VitalSignsResponse> vitalsForPatient(int patientId) =>
-      vitals.where((v) => v.patientId == patientId).toList()
+      [...vitals, ...myVitals]
+          .where((v) => v.patientId == patientId)
+          .toList()
         ..sort((a, b) =>
             DateTime.parse(b.timeStamp).compareTo(DateTime.parse(a.timeStamp)));
 
@@ -293,11 +335,36 @@ class AppProvider extends ChangeNotifier {
   }
 
   bool get hasEmergency =>
-      vitals.any((v) => v.emergencyStatus || v.heartRate > 100) ||
+      emergencyVitals.isNotEmpty ||
       dispatches.any((d) => d.isActive);
 
-  List<VitalSignsResponse> get emergencyVitals =>
-      vitals.where((v) => v.emergencyStatus || v.heartRate > 100).toList();
+  /// Only the LATEST reading per patient determines emergency state.
+  /// Old emergency readings don't count once a normal reading arrives.
+  List<VitalSignsResponse> get emergencyVitals {
+    final all = [...vitals, ...myVitals];
+    if (all.isEmpty) return [];
+
+    // Group by patientId → keep only the most recent reading per patient
+    final Map<int, VitalSignsResponse> latestPerPatient = {};
+    for (final v in all) {
+      final existing = latestPerPatient[v.patientId];
+      if (existing == null) {
+        latestPerPatient[v.patientId] = v;
+      } else {
+        // Compare timestamps — keep the newer one
+        final existingTs = DateTime.tryParse(existing.timeStamp) ?? DateTime(0);
+        final thisTs     = DateTime.tryParse(v.timeStamp) ?? DateTime(0);
+        if (thisTs.isAfter(existingTs)) {
+          latestPerPatient[v.patientId] = v;
+        }
+      }
+    }
+
+    // Return only patients whose LATEST reading is in emergency
+    return latestPerPatient.values
+        .where((v) => v.emergencyStatus || v.heartRate > 100)
+        .toList();
+  }
 
   List<EmergencyDispatchResponse> get activeDispatches =>
       dispatches.where((d) => d.isActive).toList();
@@ -343,7 +410,7 @@ class AppProvider extends ChangeNotifier {
 
   void clear() {
     patients = []; doctors = []; labs = [];
-    followUps = []; vitals = []; sensors = []; tests = [];
+    followUps = []; vitals = []; myVitals = []; sensors = []; tests = [];
     dispatches = []; labAppointments = []; ambulances = [];
     isLoading = false;
     loadError = null;

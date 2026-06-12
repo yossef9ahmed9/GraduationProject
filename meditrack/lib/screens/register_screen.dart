@@ -230,7 +230,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   if (!mounted) return;
                   if (ok) {
                     final app = context.read<AppProvider>();
-                    await app.loadAll(auth.role);
+                    await app.loadAll(auth.role,
+                        patientEmail: auth.role == UserRole.patient ? auth.user?.email : null);
                     if (!mounted) return;
                     if (role == UserRole.relative) {
                       Navigator.of(context).pushAndRemoveUntil(

@@ -860,6 +860,10 @@ class _SensorSimulatorSheetState extends State<_SensorSimulatorSheet>
       if (res.ok) { _lastResult = res.data; }
       else        { _error = res.error; }
     });
+    // Refresh myVitals immediately so HomeScreen vignette + dialog react at once
+    if (res.ok && mounted) {
+      await context.read<AppProvider>().refreshMyVitals(widget.patientId);
+    }
   }
 
   @override

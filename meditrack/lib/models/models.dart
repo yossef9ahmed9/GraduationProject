@@ -213,6 +213,9 @@ class DoctorResponse {
   final double? clinicLatitude;
   final double? clinicLongitude;
   final String? profilePictureUrl;
+  final double  averageRating;
+  final int     ratingCount;
+  final double? myRating;
 
   const DoctorResponse({
     required this.id,
@@ -226,6 +229,9 @@ class DoctorResponse {
     this.clinicLatitude,
     this.clinicLongitude,
     this.profilePictureUrl,
+    this.averageRating = 0,
+    this.ratingCount   = 0,
+    this.myRating,
   });
 
   String get initials {
@@ -247,6 +253,9 @@ class DoctorResponse {
     clinicLatitude:   (j['clinicLatitude']  as num?)?.toDouble(),
     clinicLongitude:  (j['clinicLongitude'] as num?)?.toDouble(),
     profilePictureUrl: j['profilePictureUrl'] as String?,
+    averageRating:  (j['averageRating'] as num?)?.toDouble() ?? 0,
+    ratingCount:    j['ratingCount'] as int? ?? 0,
+    myRating:       (j['myRating'] as num?)?.toDouble(),
   );
 }
 
@@ -261,6 +270,9 @@ class LabResponse {
   final double? latitude;
   final double? longitude;
   final String? profilePictureUrl;
+  final double  averageRating;
+  final int     ratingCount;
+  final double? myRating;
 
   const LabResponse({
     required this.id,
@@ -271,6 +283,9 @@ class LabResponse {
     this.latitude,
     this.longitude,
     this.profilePictureUrl,
+    this.averageRating = 0,
+    this.ratingCount   = 0,
+    this.myRating,
   });
 
   factory LabResponse.fromJson(Map<String, dynamic> j) => LabResponse(
@@ -282,6 +297,9 @@ class LabResponse {
     latitude:  (j['latitude']  as num?)?.toDouble(),
     longitude: (j['longitude'] as num?)?.toDouble(),
     profilePictureUrl: j['profilePictureUrl'] as String?,
+    averageRating: (j['averageRating'] as num?)?.toDouble() ?? 0,
+    ratingCount:   j['ratingCount'] as int? ?? 0,
+    myRating:      (j['myRating'] as num?)?.toDouble(),
   );
 }
 
@@ -1107,4 +1125,46 @@ class UpdateLocationRequest {
     'latitude':  latitude,
     'longitude': longitude,
   };
+}
+
+// ── Rating ────────────────────────────────────────────────────
+class RatingRequest {
+  final double stars;
+  final int?   doctorId;
+  final int?   labId;
+
+  const RatingRequest({required this.stars, this.doctorId, this.labId});
+
+  Map<String, dynamic> toJson() => {
+    'stars': stars,
+    if (doctorId != null) 'doctorId': doctorId,
+    if (labId    != null) 'labId':    labId,
+  };
+}
+
+class RatingResponse {
+  final int    id;
+  final int    patientId;
+  final int?   doctorId;
+  final int?   labId;
+  final double stars;
+  final String updatedAtUtc;
+
+  const RatingResponse({
+    required this.id,
+    required this.patientId,
+    this.doctorId,
+    this.labId,
+    required this.stars,
+    required this.updatedAtUtc,
+  });
+
+  factory RatingResponse.fromJson(Map<String, dynamic> j) => RatingResponse(
+    id:           j['id']        as int?    ?? 0,
+    patientId:    j['patientId'] as int?    ?? 0,
+    doctorId:     j['doctorId']  as int?,
+    labId:        j['labId']     as int?,
+    stars:        (j['stars'] as num?)?.toDouble() ?? 0,
+    updatedAtUtc: j['updatedAtUtc'] as String? ?? '',
+  );
 }

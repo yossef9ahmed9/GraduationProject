@@ -8,9 +8,11 @@ import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/services/app_provider.dart';
+import 'package:meditrack/services/rating_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
+import 'package:meditrack/screens/pages/provider_shared_widgets.dart';
 
 const String _picBase = 'http://192.168.1.6:5098';
 
@@ -45,12 +47,48 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _savingMed = false;
   bool _medLoaded = false;
 
-  void _loadMedFields(PatientResponse p) {
-    if (_medLoaded) return;
-    _medCtrl.text     = p.medicalRecord;
-    _chronicCtrl.text = p.chronicDiseases ?? '';
-    _allergyCtrl.text = p.allergies       ?? '';
-    _medLoaded = true;
+  @override
+  void initState() {
+    super.initState();
+    // Pre-load ratings cache so star display is instant
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final email = context.read<AuthProvider>().user?.email ?? '';
+      ratingService.load(email);
+    });
+  }
+
+  // ── Rate doctor / lab ─────────────────────────────────────────
+
+  Future<void> _rateDoctor(DoctorResponse d) async {
+    final email   = context.read<AuthProvider>().user?.email ?? '';
+    final current = ratingService.getDoctorRating(d.id) ?? d.myRating;
+    final picked  = await showDialog<double>(
+      context: context,
+      builder: (_) => ProviderRatingDialog(
+        name:     'Dr. ${d.name}',
+        subtitle: d.specialization,
+        initial:  current,
+      ),
+    );
+    if (picked == null) return;
+    await ratingService.rateDoctor(email, d.id, picked);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _rateLab(LabResponse l) async {
+    final email   = context.read<AuthProvider>().user?.email ?? '';
+    final current = ratingService.getLabRating(l.id) ?? l.myRating;
+    final picked  = await showDialog<double>(
+      context: context,
+      builder: (_) => ProviderRatingDialog(
+        name:     l.name,
+        subtitle: l.location,
+        initial:  current,
+      ),
+    );
+    if (picked == null) return;
+    await ratingService.rateLab(email, l.id, picked);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -59,6 +97,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _chronicCtrl.dispose();
     _allergyCtrl.dispose();
     super.dispose();
+  }
+
+  void _loadMedFields(PatientResponse p) {
+    if (_medLoaded) return;
+    _medCtrl.text     = p.medicalRecord;
+    _chronicCtrl.text = p.chronicDiseases ?? '';
+    _allergyCtrl.text = p.allergies       ?? '';
+    _medLoaded = true;
   }
 
   Future<void> _saveMedRecord(PatientResponse p) async {
@@ -119,6 +165,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               style: GoogleFonts.dmSans(fontSize: 15,
                   color: isDark ? AppColors.darkAccent : AppColors.accent,
                   fontWeight: FontWeight.w500)),
+          const SizedBox(height: 12),
+          // ── Rating summary ──
+          _RatingSummaryWidget(
+            averageRating: d.averageRating,
+            ratingCount:   d.ratingCount,
+            myRating:      ratingService.getDoctorRating(d.id),
+            isDark:        isDark,
+            canRate:       role == UserRole.patient,
+            onRate: role == UserRole.patient
+                ? () => _rateDoctor(d)
+                : null,
+          ),
           const SizedBox(height: 16),
           AppCard(child: Column(children: [
             if (d.clinicName != null && d.clinicName!.isNotEmpty)
@@ -221,6 +279,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           Text('Medical Laboratory',
               style: GoogleFonts.dmSans(fontSize: 14,
                   color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+          const SizedBox(height: 12),
+          // ── Rating summary ──
+          _RatingSummaryWidget(
+            averageRating: l.averageRating,
+            ratingCount:   l.ratingCount,
+            myRating:      ratingService.getLabRating(l.id),
+            isDark:        isDark,
+            canRate:       role == UserRole.patient,
+            onRate: role == UserRole.patient
+                ? () => _rateLab(l)
+                : null,
+          ),
           const SizedBox(height: 16),
           AppCard(child: Column(children: [
             _InfoRow(icon: Icons.science_outlined, label: l.name.isNotEmpty ? l.name : 'Lab name not specified'),
@@ -423,6 +493,112 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ])),
         ]),
       ),
+    );
+  }
+}
+
+// ── Rating summary widget ─────────────────────────────────────
+
+class _RatingSummaryWidget extends StatelessWidget {
+  final double  averageRating;
+  final int     ratingCount;
+  final double? myRating;
+  final bool    isDark;
+  final bool    canRate;
+  final VoidCallback? onRate;
+
+  const _RatingSummaryWidget({
+    required this.averageRating,
+    required this.ratingCount,
+    required this.isDark,
+    required this.canRate,
+    this.myRating,
+    this.onRate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRating  = averageRating > 0;
+    final accentColor = isDark ? AppColors.darkAccent : AppColors.accent;
+
+    return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(children: [
+        // Stars + numeric
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              ProviderStarRow(
+                rating: hasRating ? averageRating : null,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                hasRating
+                    ? averageRating.toStringAsFixed(1)
+                    : '—',
+                style: GoogleFonts.dmSans(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: hasRating
+                        ? const Color(0xFFFFC107)
+                        : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+              ),
+            ]),
+            const SizedBox(height: 4),
+            Text(
+              hasRating
+                  ? '$ratingCount rating${ratingCount != 1 ? 's' : ''}'
+                  : 'No ratings yet',
+              style: GoogleFonts.dmSans(
+                  fontSize: 12,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary),
+            ),
+            // Show the patient's own rating if they've rated
+            if (myRating != null) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Icon(Icons.person_outline, size: 12,
+                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+                const SizedBox(width: 4),
+                Text(
+                  'Your rating: ${myRating!.toStringAsFixed(1)} ★',
+                  style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
+                ),
+              ]),
+            ],
+          ]),
+        ),
+        // Rate button for patients
+        if (canRate && onRate != null)
+          ElevatedButton.icon(
+            onPressed: onRate,
+            icon: Icon(
+              myRating != null ? Icons.star_rounded : Icons.star_border_rounded,
+              size: 16,
+              color: myRating != null ? const Color(0xFFFFC107) : null,
+            ),
+            label: Text(
+              myRating != null ? 'Update' : 'Rate',
+              style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              backgroundColor: myRating != null
+                  ? const Color(0xFFFFC107).withValues(alpha: 0.15)
+                  : accentColor,
+              foregroundColor: myRating != null
+                  ? const Color(0xFFFFC107)
+                  : Colors.white,
+              elevation: 0,
+              side: myRating != null
+                  ? const BorderSide(color: Color(0xFFFFC107))
+                  : BorderSide.none,
+            ),
+          ),
+      ]),
     );
   }
 }

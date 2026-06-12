@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -6,10 +7,22 @@ import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
 import 'package:meditrack/services/auth_provider.dart';
 import 'package:meditrack/services/app_provider.dart';
+import 'package:meditrack/services/location_service.dart';
+import 'package:meditrack/services/rating_service.dart';
 import 'package:meditrack/theme/app_theme.dart';
 import 'package:meditrack/widgets/common_widgets.dart';
 import 'package:meditrack/screens/chat_screen.dart';
 import 'package:meditrack/screens/user_profile_screen.dart';
+import 'package:meditrack/screens/pages/provider_shared_widgets.dart';
+
+// Local aliases for shared widgets
+typedef _SortMode     = ProviderSortMode;
+typedef _SortBar      = ProviderSortBar;
+typedef _RatingDialog = ProviderRatingDialog;
+typedef _StarRow      = ProviderStarRow;
+typedef _ActionBtn    = ProviderActionBtn;
+double _distKm(double lat1, double lon1, double lat2, double lon2) =>
+    providerDistKm(lat1, lon1, lat2, lon2);
 
 class LabsPage extends StatefulWidget {
   const LabsPage({super.key});
@@ -19,8 +32,9 @@ class LabsPage extends StatefulWidget {
 
 class _LabsPageState extends State<LabsPage> {
   final _searchCtrl = TextEditingController();
-  String _query = '';
-  Timer? _autoRefresh;
+  String    _query    = '';
+  _SortMode _sortMode = _SortMode.name;
+  Timer?    _autoRefresh;
 
   @override
   void initState() {
@@ -29,9 +43,16 @@ class _LabsPageState extends State<LabsPage> {
       if (mounted) {
         final app  = context.read<AppProvider>();
         final auth = context.read<AuthProvider>();
-        Future.wait([app.refreshLabs(), app.refreshLabAppointments(),
-          app.refreshTests()]);
+        Future.wait([
+          app.refreshLabs(),
+          app.refreshLabAppointments(),
+          app.refreshTests(),
+        ]);
       }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final email = context.read<AuthProvider>().user?.email ?? '';
+      ratingService.load(email);
     });
   }
 
@@ -42,17 +63,75 @@ class _LabsPageState extends State<LabsPage> {
     super.dispose();
   }
 
-  List<LabResponse> _filtered(List<LabResponse> all) {
+  // ── Filter + sort ─────────────────────────────────────────────
+
+  List<LabResponse> _process(List<LabResponse> all) {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return all;
-    return all.where((l) =>
-        l.name.toLowerCase().contains(q) ||
-        l.location.toLowerCase().contains(q)).toList();
+    var list = q.isEmpty
+        ? List<LabResponse>.from(all)
+        : all
+            .where((l) =>
+                l.name.toLowerCase().contains(q) ||
+                l.location.toLowerCase().contains(q))
+            .toList();
+
+    switch (_sortMode) {
+      case _SortMode.name:
+        list.sort((a, b) => a.name.compareTo(b.name));
+        break;
+      case _SortMode.rating:
+        list.sort((a, b) {
+          // Prefer backend average; fall back to local
+          final ra = a.averageRating > 0
+              ? a.averageRating
+              : (ratingService.getLabRating(a.id) ?? 0);
+          final rb = b.averageRating > 0
+              ? b.averageRating
+              : (ratingService.getLabRating(b.id) ?? 0);
+          return rb.compareTo(ra);
+        });
+        break;
+      case _SortMode.distance:
+        final pos = locationService.lastPosition;
+        if (pos != null) {
+          list.sort((a, b) {
+            final da = (a.latitude != null && a.longitude != null)
+                ? _distKm(pos.latitude, pos.longitude, a.latitude!, a.longitude!)
+                : double.infinity;
+            final db = (b.latitude != null && b.longitude != null)
+                ? _distKm(pos.latitude, pos.longitude, b.latitude!, b.longitude!)
+                : double.infinity;
+            return da.compareTo(db);
+          });
+        }
+        break;
+    }
+    return list;
   }
+
+  // ── Rate lab ─────────────────────────────────────────────────
+
+  Future<void> _rateLab(LabResponse lab) async {
+    final email   = context.read<AuthProvider>().user?.email ?? '';
+    // Show current local rating first; fallback to backend average for display
+    final current = ratingService.getLabRating(lab.id) ?? lab.myRating;
+    final picked  = await showDialog<double>(
+      context: context,
+      builder: (_) => _RatingDialog(
+        name:     lab.name,
+        subtitle: lab.location,
+        initial:  current,
+      ),
+    );
+    if (picked == null) return;
+    await ratingService.rateLab(email, lab.id, picked);
+    if (mounted) setState(() {});
+  }
+
+  // ── Book test ─────────────────────────────────────────────────
 
   void _showBookSheet(LabResponse lab) {
     final auth = context.read<AuthProvider>();
-    // Only patients can book tests
     if (auth.role != UserRole.patient) return;
     showModalBottomSheet(
       context: context,
@@ -64,20 +143,19 @@ class _LabsPageState extends State<LabsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final app      = context.watch<AppProvider>();
-    final auth     = context.watch<AuthProvider>();
-    final isDark   = Theme.of(context).brightness == Brightness.dark;
-    final filtered = _filtered(app.labs);
-    final canBook  = auth.role == UserRole.patient;
+    final app     = context.watch<AppProvider>();
+    final auth    = context.watch<AuthProvider>();
+    final isDark  = Theme.of(context).brightness == Brightness.dark;
+    final canBook = auth.role == UserRole.patient;
+    final canRate = auth.role == UserRole.patient;
+    final list    = _process(app.labs);
 
     return RefreshIndicator(
       onRefresh: () => app.refreshLabs(),
-      child: Stack(
-        children: [
-          CustomScrollView(
+      child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
-          // Search
+          // ── Search ──
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -90,31 +168,42 @@ class _LabsPageState extends State<LabsPage> {
                   suffixIcon: _query.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear_rounded, size: 16),
-                          onPressed: () { _searchCtrl.clear(); setState(() => _query = ''); },
-                        )
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          })
                       : null,
                 ),
               ),
             ),
           ),
-          // Count
+          // ── Sort bar + count ──
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: Text(
-                '${filtered.length} lab${filtered.length != 1 ? 's' : ''}',
-                style: GoogleFonts.dmSans(fontSize: 13,
-                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
-              ),
+              child: Row(children: [
+                Text('${list.length} lab${list.length != 1 ? 's' : ''}',
+                    style: GoogleFonts.dmSans(fontSize: 13,
+                        color: isDark
+                            ? AppColors.darkTextSecondary
+                            : AppColors.textSecondary)),
+                const Spacer(),
+                _SortBar(
+                  current: _sortMode,
+                  onChange: (m) => setState(() => _sortMode = m),
+                ),
+              ]),
             ),
           ),
-          // List
+          // ── List ──
           if (app.isLoading)
             const SliverToBoxAdapter(child: LoadingRows(count: 4))
-          else if (filtered.isEmpty)
+          else if (list.isEmpty)
             SliverToBoxAdapter(
               child: EmptyState(
-                message: _query.isNotEmpty ? 'No labs match your search' : 'No labs found',
+                message: _query.isNotEmpty
+                    ? 'No labs match your search'
+                    : 'No labs found',
                 icon: Icons.science_outlined,
               ),
             )
@@ -124,138 +213,201 @@ class _LabsPageState extends State<LabsPage> {
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (_, i) => _LabCard(
-                    lab: filtered[i],
-                    onChat: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => ChatScreen(
-                          otherEmail: filtered[i].email,
-                          otherName:  filtered[i].name,
-                        ))),
-                    onBook: canBook ? () => _showBookSheet(filtered[i]) : null,
+                    lab:      list[i],
+                    canBook:  canBook,
+                    canRate:  canRate,
+                    myRating: ratingService.getLabRating(list[i].id),
+                    sortMode: _sortMode,
+                    onBook:   canBook ? () => _showBookSheet(list[i]) : null,
+                    onRate:   canRate ? () => _rateLab(list[i]) : null,
+                    onChat:   () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => ChatScreen(
+                              otherEmail: list[i].email,
+                              otherName:  list[i].name,
+                            ))),
                   ),
-                  childCount: filtered.length,
+                  childCount: list.length,
                 ),
               ),
             ),
-        ],
-      ),
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: FloatingActionButton.small(
-              onPressed: () {
-                final app  = context.read<AppProvider>();
-                final auth = context.read<AuthProvider>();
-                Future.wait([app.refreshLabs(), app.refreshLabAppointments(),
-                  app.refreshTests()]);
-              },
-              tooltip: 'Refresh',
-              child: const Icon(Icons.refresh_rounded),
-            ),
-          ),
         ],
       ),
     );
   }
 }
 
-// ── Lab Card ─────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Lab Card
+// ─────────────────────────────────────────────────────────────
 
 class _LabCard extends StatelessWidget {
   final LabResponse lab;
-  final VoidCallback? onChat;
+  final bool canBook, canRate;
+  final double? myRating;
+  final _SortMode sortMode;
   final VoidCallback? onBook;
-  const _LabCard({required this.lab, this.onChat, this.onBook});
+  final VoidCallback? onRate;
+  final VoidCallback  onChat;
+
+  const _LabCard({
+    required this.lab,      required this.canBook,  required this.canRate,
+    required this.myRating, required this.sortMode, required this.onChat,
+    this.onBook, this.onRate,
+  });
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return AppCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        lab.profilePictureUrl != null && lab.profilePictureUrl!.isNotEmpty
-            ? AvatarWidget(
-                initials: lab.name.isNotEmpty ? lab.name[0].toUpperCase() : 'L',
-                size: 40, fontSize: 14,
-                photoUrl: lab.profilePictureUrl,
-              )
-            : Container(
-                width: 40, height: 40,
+    final pos     = locationService.lastPosition;
+    final hasDist = pos != null && lab.latitude != null && lab.longitude != null;
+    final dist    = hasDist
+        ? _distKm(pos!.latitude, pos.longitude, lab.latitude!, lab.longitude!)
+        : null;
+
+    // Which rating to display: backend aggregate wins, fallback to local
+    final displayRating = lab.averageRating > 0 ? lab.averageRating : myRating;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: AppCard(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // ── Top row ──
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            lab.profilePictureUrl != null && lab.profilePictureUrl!.isNotEmpty
+                ? AvatarWidget(
+                    initials: lab.name.isNotEmpty ? lab.name[0].toUpperCase() : 'L',
+                    size: 40, fontSize: 14,
+                    photoUrl: lab.profilePictureUrl,
+                  )
+                : Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBadgeBlueBg
+                          : AppColors.badgeBlueBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.science_outlined, size: 20,
+                        color: isDark
+                            ? AppColors.darkBadgeBlueTxt
+                            : AppColors.badgeBlueTxt),
+                  ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(lab.name,
+                  style: GoogleFonts.dmSans(
+                      fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Row(children: [
+                Icon(Icons.location_on_outlined, size: 12,
+                    color: isDark
+                        ? AppColors.darkTextTertiary
+                        : AppColors.textTertiary),
+                const SizedBox(width: 3),
+                Expanded(
+                  child: Text(lab.location,
+                      style: GoogleFonts.dmSans(fontSize: 12,
+                          color: isDark
+                              ? AppColors.darkTextSecondary
+                              : AppColors.textSecondary)),
+                ),
+              ]),
+              const SizedBox(height: 2),
+              // Rating row — backend aggregate + count
+              Row(children: [
+                _StarRow(rating: displayRating, size: 13),
+                const SizedBox(width: 6),
+                if (lab.averageRating > 0) ...[
+                  Text(
+                    '${lab.averageRating.toStringAsFixed(1)} (${lab.ratingCount})',
+                    style: GoogleFonts.dmSans(fontSize: 11,
+                        color: isDark
+                            ? AppColors.darkTextTertiary
+                            : AppColors.textTertiary),
+                  ),
+                ] else ...[
+                  Text(
+                    myRating != null
+                        ? myRating!.toStringAsFixed(1)
+                        : 'Not rated',
+                    style: GoogleFonts.dmSans(fontSize: 11,
+                        color: isDark
+                            ? AppColors.darkTextTertiary
+                            : AppColors.textTertiary),
+                  ),
+                ],
+              ]),
+            ])),
+            // Distance badge
+            if (dist != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkBadgeBlueBg : AppColors.badgeBlueBg,
-                  borderRadius: BorderRadius.circular(10),
+                  color: isDark
+                      ? AppColors.darkAccentMuted
+                      : AppColors.accentMuted,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(Icons.science_outlined, size: 20,
-                    color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
-              ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(lab.name,
-                style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Row(children: [
-              Icon(Icons.location_on_outlined, size: 12,
-                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary),
-              const SizedBox(width: 3),
-              Expanded(
-                child: Text(lab.location,
-                    style: GoogleFonts.dmSans(fontSize: 12,
-                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-              ),
-            ]),
-            const SizedBox(height: 2),
-            Text(lab.phone,
-                style: GoogleFonts.dmSans(fontSize: 11.5,
-                    color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-            const SizedBox(height: 10),
-            // Action buttons — full width row, no overflow
-            Row(children: [
-              Expanded(child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => UserProfileScreen.lab(lab),
-                )),
-                icon: const Icon(Icons.info_outline_rounded, size: 14),
-                label: Text('Profile', style: GoogleFonts.dmSans(fontSize: 12)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                child: Text(
+                  dist < 1
+                      ? '${(dist * 1000).round()} m'
+                      : '${dist.toStringAsFixed(1)} km',
+                  style: GoogleFonts.dmSans(fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isDark
+                          ? AppColors.darkAccent
+                          : AppColors.accent),
                 ),
-              )),
-              if (onChat != null) ...[
-                const SizedBox(width: 6),
-                Expanded(child: OutlinedButton.icon(
-                  onPressed: onChat,
-                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
-                  label: Text('Chat', style: GoogleFonts.dmSans(fontSize: 12)),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                )),
-              ],
-              if (onBook != null) ...[
-                const SizedBox(width: 6),
-                Expanded(child: OutlinedButton.icon(
-                  onPressed: onBook,
-                  icon: const Icon(Icons.calendar_month_outlined, size: 14),
-                  label: Text('Book', style: GoogleFonts.dmSans(fontSize: 12)),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                )),
-              ],
-            ]),
+              ),
           ]),
-        ),
-      ]),
+          const SizedBox(height: 10),
+          // ── Action buttons ──
+          Row(children: [
+            Expanded(child: _ActionBtn(
+              icon: Icons.info_outline_rounded,
+              label: 'Profile',
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => UserProfileScreen.lab(lab))),
+            )),
+            const SizedBox(width: 6),
+            Expanded(child: _ActionBtn(
+              icon: Icons.chat_bubble_outline_rounded,
+              label: 'Chat',
+              onTap: onChat,
+            )),
+            if (onBook != null) ...[
+              const SizedBox(width: 6),
+              Expanded(child: _ActionBtn(
+                icon: Icons.calendar_month_outlined,
+                label: 'Book',
+                onTap: onBook!,
+              )),
+            ],
+            if (onRate != null) ...[
+              const SizedBox(width: 6),
+              Expanded(child: _ActionBtn(
+                icon: myRating != null
+                    ? Icons.star_rounded
+                    : Icons.star_border_rounded,
+                label: myRating != null ? 'Rated' : 'Rate',
+                onTap: onRate!,
+                highlight: myRating != null,
+              )),
+            ],
+          ]),
+        ]),
+      ),
     );
   }
 }
 
-// ── Book Test Bottom Sheet ────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Book Test Bottom Sheet (unchanged)
+// ─────────────────────────────────────────────────────────────
 
 class _BookTestSheet extends StatefulWidget {
   final LabResponse lab;
@@ -286,15 +438,20 @@ class _BookTestSheetState extends State<_BookTestSheet> {
   void dispose() { _notesCtrl.dispose(); super.dispose(); }
 
   Future<void> _submit() async {
-    if (_checked.isEmpty) { setState(() => _error = 'Select at least one test.'); return; }
+    if (_checked.isEmpty) {
+      setState(() => _error = 'Select at least one test.');
+      return;
+    }
     final app  = context.read<AppProvider>();
     final auth = context.read<AuthProvider>();
     int? patientId = auth.role == UserRole.patient
         ? app.patientByEmail(auth.user?.email ?? '')?.id
         : null;
     patientId ??= app.patients.isNotEmpty ? app.patients.first.id : null;
-    if (patientId == null) { setState(() => _error = 'Could not determine patient.'); return; }
-
+    if (patientId == null) {
+      setState(() => _error = 'Could not determine patient.');
+      return;
+    }
     setState(() { _submitting = true; _error = null; });
     final res = await apiService.createLabAppointment(LabAppointmentRequest(
       patientId: patientId,
@@ -329,13 +486,19 @@ class _BookTestSheetState extends State<_BookTestSheet> {
       ),
       padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
       child: SingleChildScrollView(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Center(child: Container(width: 36, height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
-                    borderRadius: BorderRadius.circular(2)))),
+            Center(child: Container(
+              width: 36, height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.darkBorderColor
+                      : AppColors.borderColor,
+                  borderRadius: BorderRadius.circular(2)),
+            )),
             Text('Book Test — ${widget.lab.name}',
                 style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
@@ -343,9 +506,12 @@ class _BookTestSheetState extends State<_BookTestSheet> {
               AlertWidget(message: _error!, isError: true),
               const SizedBox(height: 12),
             ],
-            Text('SELECT TESTS', style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
-                color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
-                letterSpacing: 0.05)),
+            Text('SELECT TESTS',
+                style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? AppColors.darkTextSecondary
+                        : AppColors.textSecondary,
+                    letterSpacing: 0.05)),
             const SizedBox(height: 8),
             AppCard(
               child: Column(
@@ -354,19 +520,25 @@ class _BookTestSheetState extends State<_BookTestSheet> {
                   title: Text(_key(t), style: GoogleFonts.dmSans(fontSize: 13)),
                   subtitle: t != _key(t)
                       ? Text(t, style: GoogleFonts.dmSans(fontSize: 11,
-                          color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary))
+                          color: isDark
+                              ? AppColors.darkTextTertiary
+                              : AppColors.textTertiary))
                       : null,
                   value: _checked.contains(_key(t)),
                   onChanged: (v) => setState(() {
-                    if (v == true) _checked.add(_key(t)); else _checked.remove(_key(t));
+                    if (v == true) _checked.add(_key(t));
+                    else _checked.remove(_key(t));
                   }),
                 )).toList(),
               ),
             ),
             const SizedBox(height: 16),
-            Text('APPOINTMENT DATE', style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
-                color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary,
-                letterSpacing: 0.05)),
+            Text('APPOINTMENT DATE',
+                style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? AppColors.darkTextSecondary
+                        : AppColors.textSecondary,
+                    letterSpacing: 0.05)),
             const SizedBox(height: 8),
             AppCard(
               padding: const EdgeInsets.all(12),
@@ -376,7 +548,8 @@ class _BookTestSheetState extends State<_BookTestSheet> {
                 const SizedBox(width: 10),
                 Expanded(child: Text(
                   '${_date.day}/${_date.month}/${_date.year}',
-                  style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.dmSans(
+                      fontSize: 13, fontWeight: FontWeight.w600),
                 )),
                 TextButton(
                   onPressed: () async {
@@ -394,17 +567,22 @@ class _BookTestSheetState extends State<_BookTestSheet> {
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: _notesCtrl, maxLines: 2,
+              controller: _notesCtrl,
+              maxLines: 2,
               decoration: const InputDecoration(hintText: 'Notes (optional)…'),
             ),
             const SizedBox(height: 20),
             Row(children: [
               Expanded(child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'))),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              )),
               const SizedBox(width: 12),
               Expanded(child: PrimaryButton(
-                  label: 'Confirm', isLoading: _submitting, onPressed: _submit)),
+                label: 'Confirm',
+                isLoading: _submitting,
+                onPressed: _submit,
+              )),
             ]),
           ],
         ),

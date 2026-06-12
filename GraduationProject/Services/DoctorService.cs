@@ -15,6 +15,17 @@ namespace GraduationProject.Services
                 .Select(u => new { u.Email, u.ProfilePictureUrl })
                 .ToDictionaryAsync(u => u.Email!, u => u.ProfilePictureUrl, ct);
 
+        // Fetch average rating + count for a list of doctor ids
+        private async Task<Dictionary<int, (double avg, int count)>> GetRatingMapAsync(
+            IEnumerable<int> doctorIds, CancellationToken ct) =>
+            (await _context.Ratings
+                .AsNoTracking()
+                .Where(r => r.DoctorId.HasValue && doctorIds.Contains(r.DoctorId!.Value))
+                .GroupBy(r => r.DoctorId!.Value)
+                .Select(g => new { DoctorId = g.Key, Avg = g.Average(r => r.Stars), Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.DoctorId, x => (x.Avg, x.Count));
+
         public async Task<PagedResponse<DoctorResponse>> GetAllAsync(
             int pageNumber = 1, int pageSize = 10,
             CancellationToken cancellationToken = default)
@@ -28,11 +39,18 @@ namespace GraduationProject.Services
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
 
-            var picMap = await GetPicMapAsync(doctors.Select(d => d.Email), cancellationToken);
+            var picMap    = await GetPicMapAsync(doctors.Select(d => d.Email), cancellationToken);
+            var ratingMap = await GetRatingMapAsync(doctors.Select(d => d.Id), cancellationToken);
 
-            var items = doctors.Select(d => d.Adapt<DoctorResponse>() with
+            var items = doctors.Select(d =>
             {
-                ProfilePictureUrl = picMap.GetValueOrDefault(d.Email)
+                var (avg, count) = ratingMap.GetValueOrDefault(d.Id, (0, 0));
+                return d.Adapt<DoctorResponse>() with
+                {
+                    ProfilePictureUrl = picMap.GetValueOrDefault(d.Email),
+                    AverageRating     = Math.Round(avg, 1),
+                    RatingCount       = count,
+                };
             }).ToList();
 
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
@@ -52,10 +70,15 @@ namespace GraduationProject.Services
             if (doctor == null)
                 return Result.Failure<DoctorResponse>(DoctorErors.DoctorNotFound);
 
-            var picMap = await GetPicMapAsync([doctor.Email], cancellationToken);
+            var picMap    = await GetPicMapAsync([doctor.Email], cancellationToken);
+            var ratingMap = await GetRatingMapAsync([doctor.Id], cancellationToken);
+            var (avg, count) = ratingMap.GetValueOrDefault(doctor.Id, (0, 0));
+
             var response = doctor.Adapt<DoctorResponse>() with
             {
-                ProfilePictureUrl = picMap.GetValueOrDefault(doctor.Email)
+                ProfilePictureUrl = picMap.GetValueOrDefault(doctor.Email),
+                AverageRating     = Math.Round(avg, 1),
+                RatingCount       = count,
             };
             return Result.Success(response);
         }

@@ -26,14 +26,14 @@ class _VitalsPageState extends State<VitalsPage> {
   HeartRiskResponse? _riskResult;
   bool _analyzingRisk = false;
 
-  // ── Auto-refresh every 30s to match Arduino send interval ─────
+  // ── Auto-refresh every 20s to match Arduino send interval ─────
   Timer? _sensorRefresh;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _init());
-    _sensorRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+    _sensorRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted && _selectedPatientId != null) {
         _loadVitals(_selectedPatientId!);
       }
@@ -66,7 +66,20 @@ class _VitalsPageState extends State<VitalsPage> {
     try {
       final res = await apiService.getVitalsByPatient(patientId);
       if (res.ok) {
-        setState(() { _history = res.data ?? []; _loading = false; });
+        final data = res.data ?? [];
+        setState(() { _history = data; _loading = false; });
+        // Keep AppProvider.myVitals in sync so HomeScreen vignette/dialog
+        // clears immediately when patient sends a normal reading and refreshes.
+        if (mounted) {
+          final auth = context.read<AuthProvider>();
+          final appProv = context.read<AppProvider>();
+          if (auth.role == UserRole.patient) {
+            appProv.updateMyVitals(data);
+          } else {
+            // Doctor/admin: update the shared vitals list too
+            appProv.updateVitalsForPatient(patientId, data);
+          }
+        }
         if (_history.isNotEmpty) _analyzeRisk(_history.first);
       } else {
         setState(() { _error = res.error ?? 'Failed to load vitals.'; _loading = false; });
@@ -533,9 +546,11 @@ class _MiniVitalChart extends StatelessWidget {
   });
 
   @override
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Show last 20, oldest first
+    // history is newest-first → reverse to get oldest-first for chart left→right
+    // so the rightmost point IS the latest reading
     final sorted = history.reversed.take(20).toList();
     final spots = sorted.asMap().entries
         .map((e) {
@@ -547,9 +562,13 @@ class _MiniVitalChart extends StatelessWidget {
 
     if (spots.isEmpty) return const SizedBox.shrink();
 
-    final latest = spots.last.y;
-    final min    = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
-    final max    = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
+    // Latest = first item of history (newest-first list)
+    final latestVal = getValue(history.first);
+    final chartMin  = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
+    final chartMax  = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
+    // Dynamic Y so values above maxY are never clipped
+    final effectiveMinY = (chartMin * 0.95).clamp(0.0, minY);
+    final effectiveMaxY = chartMax > maxY ? chartMax * 1.05 : maxY;
 
     return AppCard(child: Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -557,7 +576,8 @@ class _MiniVitalChart extends StatelessWidget {
         Row(children: [
           Expanded(child: Text(label,
               style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700))),
-          Text('${latest.toStringAsFixed(1)} $unit',
+          // Show the true latest value (matches the card above)
+          Text('${latestVal.toStringAsFixed(1)} $unit',
               style: GoogleFonts.dmMono(fontSize: 13,
                   fontWeight: FontWeight.w700, color: color)),
         ]),
@@ -565,7 +585,8 @@ class _MiniVitalChart extends StatelessWidget {
         SizedBox(
           height: 120,
           child: LineChart(LineChartData(
-            minY: minY, maxY: maxY,
+            minY: effectiveMinY, maxY: effectiveMaxY,
+            clipData: const FlClipData.all(),
             gridData: FlGridData(
               show: true, drawVerticalLine: false,
               getDrawingHorizontalLine: (_) => FlLine(
@@ -599,11 +620,11 @@ class _MiniVitalChart extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Row(children: [
-          _StatChip('Latest', '${latest.toStringAsFixed(1)} $unit', isDark),
+          _StatChip('Latest', '${latestVal.toStringAsFixed(1)} $unit', isDark),
           const SizedBox(width: 8),
-          _StatChip('Min',    '${min.toStringAsFixed(1)} $unit',    isDark),
+          _StatChip('Min', '${chartMin.toStringAsFixed(1)} $unit', isDark),
           const SizedBox(width: 8),
-          _StatChip('Max',    '${max.toStringAsFixed(1)} $unit',    isDark),
+          _StatChip('Max', '${chartMax.toStringAsFixed(1)} $unit', isDark),
         ]),
       ]),
     ));

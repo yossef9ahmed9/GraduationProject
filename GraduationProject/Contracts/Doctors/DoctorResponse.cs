@@ -11,6 +11,9 @@
         string? ClinicAddress,
         double? ClinicLatitude,
         double? ClinicLongitude,
-        string? ProfilePictureUrl = null
+        string? ProfilePictureUrl = null,
+        double  AverageRating     = 0,
+        int     RatingCount       = 0,
+        double? MyRating          = null
     );
 }

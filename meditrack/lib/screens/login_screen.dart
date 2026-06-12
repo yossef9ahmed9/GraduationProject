@@ -63,10 +63,8 @@ class _LoginScreenState extends State<LoginScreen>
     final ok = await auth.login(email, pass);
     if (!ok || !mounted) return;
 
-    await app.loadAll(auth.role);
-    if (!mounted) return;
-
-    // Ambulance: sign in → mark as Available on the server
+    await app.loadAll(auth.role,
+        patientEmail: auth.role == UserRole.patient ? auth.user?.email : null);
     if (auth.role == UserRole.ambulance) {
       await apiService.ambulanceSignIn();
     }
@@ -82,6 +80,12 @@ class _LoginScreenState extends State<LoginScreen>
     );
     fcmService.onMessageReceived = (title, body, data) {
       notifs.addFromFcm(title: title, body: body, data: data);
+      // If it's an emergency push, refresh myVitals immediately so the
+      // vignette lights up at the same time as the dialog — no polling delay.
+      if (data['type'] == 'emergency' && auth.role == UserRole.patient) {
+        final patient = app.patientByEmail(auth.user!.email);
+        if (patient != null) app.refreshMyVitals(patient.id);
+      }
     };
 
     // Start GPS tracking for patient
