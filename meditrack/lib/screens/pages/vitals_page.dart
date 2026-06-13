@@ -26,6 +26,11 @@ class _VitalsPageState extends State<VitalsPage> {
   HeartRiskResponse? _riskResult;
   bool _analyzingRisk = false;
 
+  // ── Trend forecast ────────────────────────────────────────────
+  HeartRiskTrendResponse? _trendResult;
+  bool _analyzingTrend = false;
+  String? _trendError;
+
   // ── Auto-refresh every 20s to match Arduino send interval ─────
   Timer? _sensorRefresh;
 
@@ -62,7 +67,7 @@ class _VitalsPageState extends State<VitalsPage> {
   }
 
   Future<void> _loadVitals(int patientId) async {
-    setState(() { _loading = true; _error = null; _selectedPatientId = patientId; _riskResult = null; });
+    setState(() { _loading = true; _error = null; _selectedPatientId = patientId; _riskResult = null; _trendResult = null; _trendError = null; });
     try {
       final res = await apiService.getVitalsByPatient(patientId);
       if (res.ok) {
@@ -81,6 +86,8 @@ class _VitalsPageState extends State<VitalsPage> {
           }
         }
         if (_history.isNotEmpty) _analyzeRisk(_history.first);
+        _analyzeTrend(patientId);
+        // use patientId directly, not _selectedPatientId
       } else {
         setState(() { _error = res.error ?? 'Failed to load vitals.'; _loading = false; });
       }
@@ -115,6 +122,21 @@ class _VitalsPageState extends State<VitalsPage> {
     setState(() {
       _analyzingRisk = false;
       if (res.ok) _riskResult = res.data;
+    });
+  }
+
+  Future<void> _analyzeTrend(int patientId) async {
+    setState(() { _analyzingTrend = true; _trendError = null; });
+    final res = await apiService.predictTrend(patientId);
+    if (!mounted) return;
+    setState(() {
+      _analyzingTrend = false;
+      if (res.ok) {
+        _trendResult = res.data;
+        _trendError  = null;
+      } else {
+        _trendError = res.error ?? 'Trend analysis failed.';
+      }
     });
   }
 
@@ -269,7 +291,18 @@ class _VitalsPageState extends State<VitalsPage> {
             _RiskCard(
               result: _riskResult,
               analyzing: _analyzingRisk,
-              onReanalyze: () => _analyzeRisk(latest),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Trend Forecast card ─────────────────────────────
+            _TrendCard(
+              result: _trendResult,
+              analyzing: _analyzingTrend,
+              error: _trendError,
+              onReanalyze: _selectedPatientId != null
+                  ? () => _analyzeTrend(_selectedPatientId!)
+                  : null,
+              hasEnoughData: true,
             ),
             const SizedBox(height: 16),
 
@@ -320,12 +353,49 @@ class _VitalsPageState extends State<VitalsPage> {
                       DataColumn(label: Text('TEMP')),
                       DataColumn(label: Text('BP')),
                       DataColumn(label: Text('STATUS')),
+                      DataColumn(label: Text('FORECAST')),
                     ],
                     rows: _history.take(20).map((v) {
                       final ts = DateTime.tryParse(v.timeStamp)?.toLocal();
                       final timeStr = ts != null
                           ? '${ts.hour.toString().padLeft(2,'0')}:${ts.minute.toString().padLeft(2,'0')} ${ts.day}/${ts.month}'
                           : '—';
+
+                      // Forecast cell — show time-to-danger if this is the latest reading
+                      final isLatest = v == _history.first;
+                      Widget forecastCell;
+                      if (isLatest && _trendResult != null) {
+                        final t = _trendResult!.timeToDangerMin;
+                        final heading = _trendResult!.trendDirection;
+                        if (heading == 'TOWARD_EMERGENCY' && t != null) {
+                          final label = t < 1
+                              ? '< 1 min'
+                              : '~${t.toStringAsFixed(0)} min';
+                          forecastCell = Text('⚠ $label',
+                              style: GoogleFonts.dmMono(fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: t <= 5
+                                      ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
+                                      : (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)));
+                        } else if (heading == 'TOWARD_EMERGENCY') {
+                          forecastCell = Text('↑ risk',
+                              style: GoogleFonts.dmMono(fontSize: 11,
+                                  color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt));
+                        } else if (heading == 'AWAY_FROM_EMERGENCY') {
+                          forecastCell = Text('✓ ok',
+                              style: GoogleFonts.dmMono(fontSize: 11,
+                                  color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt));
+                        } else {
+                          forecastCell = Text('—',
+                              style: GoogleFonts.dmMono(fontSize: 11,
+                                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary));
+                        }
+                      } else {
+                        forecastCell = Text('—',
+                            style: GoogleFonts.dmMono(fontSize: 11,
+                                color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary));
+                      }
+
                       return DataRow(cells: [
                         DataCell(Text(timeStr, style: GoogleFonts.dmMono(fontSize: 11.5))),
                         DataCell(Text('${v.heartRate}', style: GoogleFonts.dmMono(fontSize: 12,
@@ -341,6 +411,7 @@ class _VitalsPageState extends State<VitalsPage> {
                         DataCell(BadgeWidget(
                             label: _vitalStatus(v),
                             type:  _vitalBadgeType(v))),
+                        DataCell(forecastCell),
                       ]);
                     }).toList(),
                   ),
@@ -360,123 +431,99 @@ class _VitalsPageState extends State<VitalsPage> {
 class _RiskCard extends StatelessWidget {
   final HeartRiskResponse? result;
   final bool analyzing;
-  final VoidCallback onReanalyze;
-  const _RiskCard({required this.result, required this.analyzing, required this.onReanalyze});
+  const _RiskCard({required this.result, required this.analyzing});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    BadgeType tierBadge(String tier) {
-      switch (tier.toUpperCase()) {
+    if (result == null) return const SizedBox.shrink();
+
+    final tier   = result!.tier.toUpperCase();
+    final isEmg  = tier == 'CRITICAL';
+    final isWarn = tier == 'WARNING';
+
+    // Theme colors by tier
+    final bg = isEmg
+        ? (isDark ? AppColors.darkBadgeRedBg   : AppColors.badgeRedBg)
+        : isWarn
+            ? (isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg)
+            : (isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg);
+
+    final fg = isEmg
+        ? (isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt)
+        : isWarn
+            ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+            : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt);
+
+    final border = isEmg
+        ? (isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt)
+        : isWarn
+            ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+            : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt);
+
+    final icon = isEmg
+        ? Icons.emergency_rounded
+        : isWarn
+            ? Icons.warning_amber_rounded
+            : Icons.check_circle_outline_rounded;
+
+    BadgeType badge(String t) {
+      switch (t.toUpperCase()) {
         case 'CRITICAL': return BadgeType.red;
         case 'WARNING':  return BadgeType.amber;
         default:         return BadgeType.green;
       }
     }
 
-    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Header
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-        child: Row(children: [
-          Container(
-            width: 32, height: 32,
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkAccentMuted : AppColors.accentMuted,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.psychology_rounded, size: 18,
-                color: isDark ? AppColors.darkAccent : AppColors.accent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text('AI Risk Assessment',
-              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700))),
-          if (analyzing)
-            const SizedBox(width: 18, height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2))
-          else
-            TextButton(
-              onPressed: onReanalyze,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text('Re-analyze',
-                  style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w500)),
-            ),
-        ]),
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border.withValues(alpha: 0.5)),
       ),
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
 
-      if (result == null && !analyzing)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: Text('Analysis will appear after vitals load.',
-              style: GoogleFonts.dmSans(fontSize: 13,
-                  color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-        )
-      else if (result != null) ...[
-        Divider(height: 1, color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Tier + score row
-            Row(children: [
-              BadgeWidget(label: result!.tier, type: tierBadge(result!.tier)),
-              const SizedBox(width: 12),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Risk score: ${result!.score.toStringAsFixed(1)}%',
-                    style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w600)),
-                Text('Confidence: ${result!.confidence.toStringAsFixed(1)}%',
-                    style: GoogleFonts.dmSans(fontSize: 11,
-                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-              ]),
-            ]),
-            const SizedBox(height: 10),
-            // Action
-            Text(result!.action,
-                style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
-                    color: result!.tier == 'CRITICAL'
-                        ? (isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)
-                        : result!.tier == 'WARNING'
-                        ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
-                        : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt))),
-            const SizedBox(height: 6),
-            // Message
-            Text(result!.message,
-                style: GoogleFonts.dmSans(fontSize: 12,
-                    color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-            // Override reason
-            if (result!.overrideReason != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(children: [
-                  Icon(Icons.warning_amber_rounded, size: 14,
-                      color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt),
-                  const SizedBox(width: 6),
-                  Expanded(child: Text(result!.overrideReason!,
-                      style: GoogleFonts.dmSans(fontSize: 11,
-                          color: isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt))),
-                ]),
-              ),
-            ],
-            // Probability bars
-            const SizedBox(height: 12),
-            _ProbRow('Normal',   result!.probabilities.normal,   BadgeType.green,  isDark),
-            const SizedBox(height: 4),
-            _ProbRow('Warning',  result!.probabilities.warning,  BadgeType.amber,  isDark),
-            const SizedBox(height: 4),
-            _ProbRow('Critical', result!.probabilities.critical, BadgeType.red,    isDark),
-          ]),
-        ),
-      ],
-    ]));
+        // ── Tier + action ──────────────────────────────────────
+        Row(children: [
+          Icon(icon, size: 20, color: fg),
+          const SizedBox(width: 10),
+          Expanded(child: Text(result!.action,
+              style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
+                  color: fg))),
+          BadgeWidget(label: tier, type: badge(tier)),
+        ]),
+
+        const SizedBox(height: 8),
+        Text(result!.message,
+            style: GoogleFonts.dmSans(fontSize: 12,
+                color: fg.withValues(alpha: 0.85))),
+
+        // ── Override reason ────────────────────────────────────
+        if (result!.overrideReason != null) ...[
+          const SizedBox(height: 8),
+          Text('• ${result!.overrideReason!}',
+              style: GoogleFonts.dmSans(fontSize: 11,
+                  fontWeight: FontWeight.w600, color: fg)),
+        ],
+
+        // ── Probability bars ───────────────────────────────────
+        const SizedBox(height: 12),
+        _ProbRow('Normal',   result!.probabilities.normal,   BadgeType.green, isDark),
+        const SizedBox(height: 4),
+        _ProbRow('Warning',  result!.probabilities.warning,  BadgeType.amber, isDark),
+        const SizedBox(height: 4),
+        _ProbRow('Critical', result!.probabilities.critical, BadgeType.red,   isDark),
+
+        // ── Score ──────────────────────────────────────────────
+        const SizedBox(height: 8),
+        Text('Risk score ${result!.score.toStringAsFixed(1)}%  ·  '
+             'Confidence ${result!.confidence.toStringAsFixed(1)}%',
+            style: GoogleFonts.dmSans(fontSize: 11,
+                color: fg.withValues(alpha: 0.7))),
+      ]),
+    );
   }
 }
 
@@ -653,6 +700,320 @@ class _StatChip extends StatelessWidget {
       ]),
     ),
   );
+}
+
+// ════════════════════════════════════════════════════════════════
+// Trend Forecast Card — Emergency Risk Focus
+// ════════════════════════════════════════════════════════════════
+
+class _TrendCard extends StatelessWidget {
+  final HeartRiskTrendResponse? result;
+  final bool analyzing;
+  final VoidCallback? onReanalyze;
+  final bool hasEnoughData;
+  final String? error;
+
+  const _TrendCard({
+    required this.result,
+    required this.analyzing,
+    required this.hasEnoughData,
+    this.onReanalyze,
+    this.error,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Emergency risk % from new model field, fall back to 0
+    final riskPct = result?.emergencyRiskPct ?? 0.0;
+
+    // Color by risk level
+    Color riskColor() {
+      if (riskPct >= 70) return isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt;
+      if (riskPct >= 40) return isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt;
+      return isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt;
+    }
+
+    Color riskBg() {
+      if (riskPct >= 70) return isDark ? AppColors.darkBadgeRedBg   : AppColors.badgeRedBg;
+      if (riskPct >= 40) return isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg;
+      return isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg;
+    }
+
+    String headingLabel() {
+      final h = result?.trendDirection ?? '';
+      switch (h) {
+        case 'TOWARD_EMERGENCY':    return 'Heading to Emergency';
+        case 'AWAY_FROM_EMERGENCY': return 'Moving Away from Danger';
+        default:                    return 'Stable';
+      }
+    }
+
+    IconData headingIcon() {
+      final h = result?.trendDirection ?? '';
+      switch (h) {
+        case 'TOWARD_EMERGENCY':    return Icons.trending_down_rounded;
+        case 'AWAY_FROM_EMERGENCY': return Icons.trending_up_rounded;
+        default:                    return Icons.trending_flat_rounded;
+      }
+    }
+
+    BadgeType tierBadge(String tier) {
+      switch (tier.toUpperCase()) {
+        case 'CRITICAL': return BadgeType.red;
+        case 'WARNING':  return BadgeType.amber;
+        default:         return BadgeType.green;
+      }
+    }
+
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+      // ── Header ─────────────────────────────────────────────
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+        child: Row(children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkAccentMuted : AppColors.accentMuted,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.emergency_rounded, size: 18,
+                color: isDark ? AppColors.darkAccent : AppColors.accent),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Emergency Risk Forecast',
+                style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.w700)),
+            Text('Based on recent reading trend',
+                style: GoogleFonts.dmSans(fontSize: 11,
+                    color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+          ])),
+          if (analyzing)
+            const SizedBox(width: 18, height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2))
+          else if (onReanalyze != null)
+            IconButton(
+              onPressed: onReanalyze,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              tooltip: 'Re-analyze',
+              style: IconButton.styleFrom(
+                  padding: const EdgeInsets.all(6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+            ),
+        ]),
+      ),
+
+      Divider(height: 1, color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
+
+      // ── Empty / loading states ──────────────────────────────
+      if (error != null && !analyzing)
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(children: [
+            Icon(Icons.error_outline_rounded, size: 16,
+                color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt),
+            const SizedBox(width: 8),
+            Expanded(child: Text(error!,
+                style: GoogleFonts.dmSans(fontSize: 12,
+                    color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt))),
+          ]),
+        )
+      else if (analyzing)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        )
+      else if (result == null)
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text('Tap ↻ to run forecast.',
+              style: GoogleFonts.dmSans(fontSize: 13,
+                  color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+        )
+      else ...[
+
+        // ── Big risk gauge ──────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              // Large percentage number
+              Text('${riskPct.toStringAsFixed(0)}%',
+                  style: GoogleFonts.dmSans(fontSize: 42, fontWeight: FontWeight.w900,
+                      color: riskColor(), height: 1)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Emergency Risk',
+                    style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w700,
+                        color: riskColor())),
+                Text('${result!.confidence.toStringAsFixed(0)}% confidence',
+                    style: GoogleFonts.dmSans(fontSize: 11,
+                        color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+              ])),
+            ]),
+            const SizedBox(height: 10),
+            // Progress bar
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: (riskPct / 100).clamp(0.0, 1.0),
+                minHeight: 8,
+                backgroundColor: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
+                valueColor: AlwaysStoppedAnimation<Color>(riskColor()),
+              ),
+            ),
+          ]),
+        ),
+
+        // ── Heading banner ──────────────────────────────────
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: riskBg(),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(children: [
+            Icon(headingIcon(), size: 18, color: riskColor()),
+            const SizedBox(width: 10),
+            Expanded(child: Text(headingLabel(),
+                style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700,
+                    color: riskColor()))),
+          ]),
+        ),
+
+        // ── Summary message ─────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Text(result!.message,
+              style: GoogleFonts.dmSans(fontSize: 12,
+                  color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
+        ),
+
+        // ── Time to emergency chip ──────────────────────────
+        if (result!.timeToDangerMin != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: _TimeToDangerChip(minutes: result!.timeToDangerMin!, isDark: isDark),
+          ),
+
+        // ── Forecast timeline ───────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('FORECAST', style: GoogleFonts.dmSans(fontSize: 10,
+                fontWeight: FontWeight.w700, letterSpacing: 0.8,
+                color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+            const SizedBox(height: 10),
+            Row(children: [
+              _TimelineNode(label: 'Now',    tier: result!.currentTier,
+                  isDark: isDark, badgeType: tierBadge(result!.currentTier)),
+              Expanded(child: Container(height: 2,
+                  color: isDark ? AppColors.darkBorderColor : AppColors.borderColor)),
+              _TimelineNode(label: '+5 min', tier: result!.forecastTier5Min,
+                  isDark: isDark, badgeType: tierBadge(result!.forecastTier5Min)),
+              Expanded(child: Container(height: 2,
+                  color: isDark ? AppColors.darkBorderColor : AppColors.borderColor)),
+              _TimelineNode(label: '+10 min', tier: result!.forecastTier10Min,
+                  isDark: isDark, badgeType: tierBadge(result!.forecastTier10Min)),
+            ]),
+          ]),
+        ),
+      ],
+    ]));
+  }
+}
+
+class _TimeToDangerChip extends StatelessWidget {
+  final double minutes;
+  final bool isDark;
+  const _TimeToDangerChip({required this.minutes, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    // Color urgency based on how soon
+    final isUrgent  = minutes <= 5;
+    final isWarning = minutes <= 15;
+
+    final bg = isUrgent
+        ? (isDark ? AppColors.darkBadgeRedBg   : AppColors.badgeRedBg)
+        : isWarning
+            ? (isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg)
+            : (isDark ? AppColors.darkBgBase        : AppColors.bgBase);
+
+    final fg = isUrgent
+        ? (isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt)
+        : isWarning
+            ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+            : (isDark ? AppColors.darkTextSecondary  : AppColors.textSecondary);
+
+    final border = isUrgent
+        ? (isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt)
+        : isWarning
+            ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+            : (isDark ? AppColors.darkBorderColor    : AppColors.borderColor);
+
+    final icon = isUrgent ? Icons.emergency_rounded : Icons.timer_outlined;
+
+    final label = minutes < 1
+        ? 'Danger threshold imminent!'
+        : 'Danger threshold in ~${minutes.toStringAsFixed(0)} min';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(children: [
+        Icon(icon, size: 16, color: fg),
+        const SizedBox(width: 8),
+        Expanded(child: Text(label,
+            style: GoogleFonts.dmSans(fontSize: 12,
+                fontWeight: FontWeight.w700, color: fg))),
+      ]),
+    );
+  }
+}
+
+class _TimelineNode extends StatelessWidget {
+  final String label;
+  final String tier;
+  final BadgeType badgeType;
+  final bool isDark;
+
+  const _TimelineNode({
+    required this.label,
+    required this.tier,
+    required this.badgeType,
+    required this.isDark,
+  });
+
+  Color _dot() {
+    switch (badgeType) {
+      case BadgeType.red:   return isDark ? AppColors.darkBadgeRedTxt   : AppColors.badgeRedTxt;
+      case BadgeType.amber: return isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt;
+      default:              return isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Container(
+      width: 10, height: 10,
+      decoration: BoxDecoration(color: _dot(), shape: BoxShape.circle),
+    ),
+    const SizedBox(height: 6),
+    BadgeWidget(label: tier, type: badgeType),
+    const SizedBox(height: 4),
+    Text(label, style: GoogleFonts.dmSans(fontSize: 10,
+        color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
+  ]);
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -28,8 +28,9 @@ from schemas import (
     SensorReading, BatchSensorInput, StreamWindow,
     PredictionResponse, BatchPredictionResponse,
     BatchPredictionItem, ModelInfoResponse,
+    TrendRequest, TrendForecastResponse,
 )
-from model import load_or_train_model, predict_patient
+from model import load_or_train_model, predict_patient, predict_trend
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +176,34 @@ def predict_window(window: StreamWindow):
     }
     result = predict_patient(get_model(), safe_data)
     return PredictionResponse(**result)
+
+
+@app.post("/predict/trend", response_model=TrendForecastResponse, tags=["Prediction"])
+def predict_trend_endpoint(request: TrendRequest):
+    """
+    **Trend & Near-Future Forecast.**
+
+    Send the last N readings (minimum 3, recommended 5-15) ordered newest-first.
+    Returns:
+    - Current risk tier based on the latest reading
+    - Trend direction: IMPROVING / STABLE / WORSENING
+    - BPM and SpO2 slopes (change per minute)
+    - Predicted risk tier in ~5 and ~10 minutes
+    - Alert flag if the forecast shows dangerous deterioration
+    - Human-readable summary message
+
+    The .NET backend pulls recent VitalSigns rows from the database and
+    forwards them here — no extra sensor input needed.
+    """
+    readings = [r.model_dump() for r in request.readings]
+    result   = predict_trend(
+        get_model(),
+        readings,
+        age    = request.age,
+        sex    = request.sex,
+        hrv_ms = request.hrv_ms,
+    )
+    return TrendForecastResponse(**result)
 
 
 @app.get("/model/info", response_model=ModelInfoResponse, tags=["Model"])

@@ -992,6 +992,27 @@ class ApiService {
     }
   }
 
+  /// POST /api/heartrisk/predict/trend/{patientId}
+  /// Loads last 10 vitals from DB on the backend and returns trend forecast.
+  Future<ApiResult<HeartRiskTrendResponse>> predictTrend(int patientId) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$_base/heartrisk/predict/trend/$patientId'),
+        headers: _headers,
+      ).timeout(_requestTimeout);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return ApiResult.success(
+          HeartRiskTrendResponse.fromJson(
+              jsonDecode(res.body) as Map<String, dynamic>),
+          res.statusCode,
+        );
+      }
+      return ApiResult.failure(_errorMsg(res), res.statusCode);
+    } catch (e) {
+      return ApiResult.failure(e.toString(), null);
+    }
+  }
+
   /// GET /api/heartrisk/health
   Future<ApiResult<bool>> checkHeartRiskServiceHealth() async {
     try {
@@ -1187,8 +1208,18 @@ class ApiService {
   Future<ApiResult<Map<String, dynamic>>> sendSimulatedReading({
     required int patientId,
     String scenario = 'normal',
+    int? heartRate,
+    double? spo2,
   }) async {
-    final (hr, spo2) = _generateReading(scenario);
+    // Allow direct HR/SpO2 override for live loop simulation
+    final int hr;
+    final double o2;
+    if (heartRate != null && spo2 != null) {
+      hr = heartRate;
+      o2 = spo2;
+    } else {
+      (hr, o2) = _generateReading(scenario);
+    }
     try {
       final res = await http.post(
         Uri.parse('$_base/vitalsigns/sensor'),
@@ -1196,7 +1227,7 @@ class ApiService {
         body: jsonEncode({
           'patientId':        patientId,
           'heartRate':        hr,
-          'oxygenSaturation': spo2,
+          'oxygenSaturation': o2,
         }),
       ).timeout(_requestTimeout);
       if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -1209,6 +1240,11 @@ class ApiService {
     }
   }
 
+  /// Public — returns the list of (hr, spo2) steps for a trend scenario.
+  /// Used by the live simulation loop in the UI.
+  List<(int hr, double spo2)> getTrendReadings(String scenario, int steps) =>
+      _generateTrendReadings(scenario, steps);
+
   (int hr, double spo2) _generateReading(String scenario) {
     final rng = DateTime.now().millisecondsSinceEpoch;
     switch (scenario) {
@@ -1220,6 +1256,67 @@ class ApiService {
         return (25  + rng % 15, 94.0 + (rng % 30) / 10);
       default: // normal
         return (62  + rng % 34, 96.0 + (rng % 35) / 10);
+    }
+  }
+
+  // ── Trend Simulator — sends N readings in sequence to simulate a trend ──
+  // scenario: 'deteriorating' | 'recovering' | 'stable_normal' | 'stable_warning'
+  Future<List<ApiResult<Map<String, dynamic>>>> sendTrendSimulation({
+    required int patientId,
+    String trendScenario = 'deteriorating',
+    int steps = 8,
+  }) async {
+    final results = <ApiResult<Map<String, dynamic>>>[];
+    final readings = _generateTrendReadings(trendScenario, steps);
+    for (final r in readings) {
+      try {
+        final res = await http.post(
+          Uri.parse('$_base/vitalsigns/sensor'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'patientId':        patientId,
+            'heartRate':        r.$1,
+            'oxygenSaturation': r.$2,
+          }),
+        ).timeout(_requestTimeout);
+        results.add(res.statusCode >= 200 && res.statusCode < 300
+            ? ApiResult.success(jsonDecode(res.body) as Map<String, dynamic>, res.statusCode)
+            : ApiResult.failure(_errorMsg(res), res.statusCode));
+      } catch (e) {
+        results.add(ApiResult.failure(e.toString(), null));
+      }
+      // Small delay so timestamps differ in the DB
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+    return results;
+  }
+
+  List<(int hr, double spo2)> _generateTrendReadings(String scenario, int steps) {
+    switch (scenario) {
+      case 'deteriorating':
+        // Normal → Warning: HR rises 72→110, SpO2 drops 98→91
+        return List.generate(steps, (i) => (
+          72 + (i * 5),
+          98.0 - (i * 0.9),
+        ));
+      case 'recovering':
+        // Warning → Normal: HR drops 115→75, SpO2 rises 91→97
+        return List.generate(steps, (i) => (
+          115 - (i * 5),
+          91.0 + (i * 0.75),
+        ));
+      case 'stable_normal':
+        return List.generate(steps, (i) => (
+          70 + (i % 3),
+          97.5 + (i % 2) * 0.2,
+        ));
+      case 'stable_warning':
+        return List.generate(steps, (i) => (
+          105 + (i % 4),
+          93.0 + (i % 3) * 0.1,
+        ));
+      default:
+        return List.generate(steps, (i) => (72, 97.5));
     }
   }
 

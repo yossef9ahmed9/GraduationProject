@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:meditrack/models/models.dart';
 import 'package:meditrack/services/api_service.dart';
@@ -414,6 +415,77 @@ class AppProvider extends ChangeNotifier {
     dispatches = []; labAppointments = []; ambulances = [];
     isLoading = false;
     loadError = null;
+    // stop any running simulation
+    stopTrendSimulation();
     notifyListeners();
+  }
+
+  // ── Trend Simulation — lives here so it survives page navigation ──────────
+
+  Timer?  _trendTimer;
+  bool    trendSimRunning  = false;
+  int     trendSimStep     = 0;
+  int     trendSimTotal    = 0;
+  String  trendSimScenario = '';
+  String? trendSimStatus;   // shown in the banner
+
+  void startTrendSimulation({
+    required int     patientId,
+    required String  scenario,
+    int steps = 10,
+  }) {
+    stopTrendSimulation();
+
+    trendSimRunning  = true;
+    trendSimStep     = 0;
+    trendSimTotal    = steps;
+    trendSimScenario = scenario;
+    trendSimStatus   = null;
+    notifyListeners();
+
+    final readings = apiService.getTrendReadings(scenario, steps);
+
+    _trendTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (trendSimStep >= readings.length) {
+        timer.cancel();
+        trendSimRunning = false;
+        trendSimStatus  = '✅ Simulation complete.';
+        notifyListeners();
+        return;
+      }
+
+      final r = readings[trendSimStep];
+      trendSimStep++;
+      trendSimStatus = 'Step $trendSimStep/$trendSimTotal — HR ${r.$1} bpm, SpO₂ ${r.$2.toStringAsFixed(1)}%';
+      notifyListeners();
+
+      await apiService.sendSimulatedReading(
+        patientId: patientId,
+        heartRate: r.$1,
+        spo2:      r.$2,
+      );
+      await refreshMyVitals(patientId);
+    });
+  }
+
+  void stopTrendSimulation() {
+    _trendTimer?.cancel();
+    _trendTimer = null;
+    if (trendSimRunning) {
+      trendSimRunning = false;
+      trendSimStatus  = 'Stopped at step $trendSimStep/$trendSimTotal.';
+      notifyListeners();
+    }
+  }
+
+  void dismissTrendBanner() {
+    trendSimStatus = null;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _trendTimer?.cancel();
+    super.dispose();
   }
 }
