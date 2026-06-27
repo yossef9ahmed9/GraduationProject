@@ -54,11 +54,10 @@ int   spo2Index    = 0;
 float spo2Filtered = 0;
 
 // ── 30-second reporting window ────────────────────────────────
-const int     WINDOW_SEC    = 30;
-unsigned long windowStart   = 0;
-unsigned long lastSnapshot  = 0;   // timestamp of last 1-second snapshot
-float  bpmSum    = 0;
-float  spo2Sum   = 0;
+const int     WINDOW_SEC  = 30;
+unsigned long windowStart = 0;
+float  bpmSum = 0;
+float  spo2Sum = 0;
 int    sampleCount = 0;
 
 // ── Finger detection threshold ────────────────────────────────
@@ -353,7 +352,7 @@ void setup() {
   Wire.end();
   delay(100);
   Wire.begin(8, 9);          // SDA=8, SCL=9
-  Wire.setClock(400000);     // Fast mode
+  Wire.setClock(400000);     // Fast mode (same as reference sketch)
   delay(200);
 
   if (!sensor.begin(Wire, I2C_SPEED_FAST)) {
@@ -371,8 +370,7 @@ void setup() {
   sensor.setPulseAmplitudeIR(0x1F);
   sensor.setPulseAmplitudeGreen(0);
 
-  windowStart  = millis();
-  lastSnapshot = millis();
+  windowStart = millis();
   Serial.println("Sensor ready. Place finger firmly on sensor.");
 }
 
@@ -399,36 +397,17 @@ void loop() {
     processSample(ir, red);
   }
 
-  // ── Snapshot every 1 second (if valid reading) ─────────────
-  // Collects one averaged sample per second over 30 seconds,
-  // then sends the 30-sample average to the API.
-  unsigned long now = millis();
-  if (now - lastSnapshot >= 1000UL) {
-    lastSnapshot = now;
-
-    if (bpmAvg > 0 && spo2Filtered > 0) {
-      bpmSum    += bpmAvg;
-      spo2Sum   += spo2Filtered;
-      sampleCount++;
-      Serial.printf("[%02d/30] BPM=%d | SpO2=%.1f%%\n",
-                    sampleCount, bpmAvg, spo2Filtered);
-    } else {
-      Serial.println("Waiting for valid reading...");
-    }
+  // ── 30-second window → send average ──────────────────────
+  if (bpmAvg > 0 && spo2Filtered > 0) {
+    bpmSum  += bpmAvg;
+    spo2Sum += spo2Filtered;
+    sampleCount++;
+    Serial.printf("BPM=%d | SpO2=%.1f%%\n", bpmAvg, spo2Filtered);
   }
 
-  // ── Send after 30-second window ──────────────────────────
-  if ((now - windowStart) >= (WINDOW_SEC * 1000UL)) {
-    if (sampleCount > 0) {
-      Serial.printf("=== 30s window: avg BPM=%d | avg SpO2=%.1f%% (%d samples) ===\n",
-                    (int)round(bpmSum / sampleCount),
-                    spo2Sum / sampleCount,
-                    sampleCount);
-      sendToAPI(bpmSum / sampleCount, spo2Sum / sampleCount);
-    } else {
-      Serial.println("=== 30s window: no valid samples — skipping send ===");
-    }
+  if ((millis() - windowStart) >= (WINDOW_SEC * 1000UL) && sampleCount > 0) {
+    sendToAPI(bpmSum / sampleCount, spo2Sum / sampleCount);
     bpmSum = 0; spo2Sum = 0; sampleCount = 0;
-    windowStart = now;
+    windowStart = millis();
   }
 }

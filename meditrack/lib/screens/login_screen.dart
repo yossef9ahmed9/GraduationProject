@@ -80,11 +80,22 @@ class _LoginScreenState extends State<LoginScreen>
     );
     fcmService.onMessageReceived = (title, body, data) {
       notifs.addFromFcm(title: title, body: body, data: data);
-      // If it's an emergency push, refresh myVitals immediately so the
-      // vignette lights up at the same time as the dialog — no polling delay.
-      if (data['type'] == 'emergency' && auth.role == UserRole.patient) {
-        final patient = app.patientByEmail(auth.user!.email);
-        if (patient != null) app.refreshMyVitals(patient.id);
+      // Emergency/dispatch push → حدّث vitals المريض المعني فوراً
+      final type      = data['type']?.toString();
+      final patientId = int.tryParse(data['patientId']?.toString() ?? '');
+
+      if (type == 'emergency' || type == 'dispatch') {
+        if (auth.role == UserRole.patient) {
+          final patient = app.patientByEmail(auth.user!.email);
+          if (patient != null) app.refreshMyVitals(patient.id);
+        } else if (patientId != null) {
+          // Doctor/Relative: حدّث vitals المريض المحدد فوراً
+          apiService.getVitalsByPatient(patientId).then((res) {
+            if (res.ok && res.data != null) {
+              app.updateVitalsForPatient(patientId, res.data!);
+            }
+          });
+        }
       }
     };
 

@@ -207,88 +207,6 @@ namespace GraduationProject.Services
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // Trend prediction — loads last 10 VitalSigns from DB then calls Python
-        // ─────────────────────────────────────────────────────────────────────
-        public async Task<Result<HeartRiskTrendResponse>> PredictTrendAsync(
-            int patientId,
-            CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                // Pull last 10 readings for this patient, newest first
-                var vitals = await _context.VitalSigns
-                    .AsNoTracking()
-                    .Include(v => v.Patient)
-                    .Where(v => v.PatientId == patientId && !v.IsDeleted)
-                    .OrderByDescending(v => v.TimeStamp)
-                    .Take(10)
-                    .ToListAsync(cancellationToken);
-
-                if (vitals.Count < 3)
-                    return Result.Failure<HeartRiskTrendResponse>(
-                        new Error("HeartRisk.NotEnoughData",
-                            "At least 3 readings are needed for trend analysis. Keep the sensor on.",
-                            400));
-
-                var patient = vitals.First().Patient;
-                var now     = vitals.First().TimeStamp;
-
-                // Build readings list with offset in seconds relative to latest
-                var readings = vitals.Select(v => new
-                {
-                    bpm                   = (double)v.HeartRate,
-                    spo2                  = v.OxygenSaturation,
-                    timestamp_offset_sec  = (now - v.TimeStamp).TotalSeconds,
-                }).ToList();
-
-                int age = CalculateAge(patient.BirthDate);
-                int sex = patient.Gender.ToLower() == "male" ? 1 : 0;
-
-                var payload = new
-                {
-                    readings,
-                    age,
-                    sex,
-                    hrv_ms = 50.0, // default — HRV not stored in VitalSigns yet
-                };
-
-                var response = await _http.PostAsJsonAsync(
-                    $"{_baseUrl}/predict/trend", payload, _jsonOpts, cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                    return Result.Failure<HeartRiskTrendResponse>(HeartRiskErrors.ServiceUnavailable);
-
-                var raw = await response.Content
-                    .ReadFromJsonAsync<TrendResponseDto>(_jsonOpts, cancellationToken);
-
-                if (raw is null)
-                    return Result.Failure<HeartRiskTrendResponse>(HeartRiskErrors.InvalidResponse);
-
-                return Result.Success(new HeartRiskTrendResponse(
-                    raw.CurrentTier,
-                    raw.TrendDirection,
-                    raw.BpmSlope,
-                    raw.Spo2Slope,
-                    raw.ForecastTier5Min,
-                    raw.ForecastTier10Min,
-                    raw.Alert,
-                    raw.Message,
-                    raw.Confidence,
-                    raw.TimeToDangerMin
-                ));
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogError(ex, "HeartRiskService — cannot reach Python API (trend)");
-                return Result.Failure<HeartRiskTrendResponse>(HeartRiskErrors.ServiceUnavailable);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "HeartRiskService — unexpected error in PredictTrendAsync");
-                return Result.Failure<HeartRiskTrendResponse>(HeartRiskErrors.InternalError);
-            }
-        }
-
         private static int CalculateAge(DateOnly birthDate)
         {
             var today = DateOnly.FromDateTime(DateTime.Today);
@@ -356,20 +274,6 @@ namespace GraduationProject.Services
             public string? Action         { get; set; }
             public string? OverrideReason { get; set; }
             public string? Error          { get; set; }
-        }
-
-        private sealed class TrendResponseDto
-        {
-            public string CurrentTier         { get; set; } = string.Empty;
-            public string TrendDirection       { get; set; } = string.Empty;
-            public double BpmSlope             { get; set; }
-            public double Spo2Slope            { get; set; }
-            public string ForecastTier5Min     { get; set; } = string.Empty;
-            public string ForecastTier10Min    { get; set; } = string.Empty;
-            public bool   Alert                { get; set; }
-            public string Message              { get; set; } = string.Empty;
-            public double Confidence           { get; set; }
-            public double? TimeToDangerMin     { get; set; }
         }
     }
 }

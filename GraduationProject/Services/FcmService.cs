@@ -214,6 +214,44 @@ namespace GraduationProject.Services
             await Task.WhenAll(tasks);
         }
 
+        // ── Send warning vitals push to doctors and relatives only ──────────
+        public async Task SendWarningVitalsPushAsync(
+            int patientId,
+            string patientName,
+            string detail,
+            CancellationToken cancellationToken = default)
+        {
+            var doctorTokens = await _context.FollowUps
+                .AsNoTracking()
+                .Where(f => f.PatientId == patientId && f.Doctor.FcmToken != null)
+                .Select(f => f.Doctor.FcmToken!)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var relativeTokens = await _context.Relatives
+                .AsNoTracking()
+                .Where(r => r.PatientRequests.Any(req =>
+                    req.PatientId == patientId && req.Status == "Approved")
+                    && r.FcmToken != null)
+                .Select(r => r.FcmToken!)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var allTokens = doctorTokens.Concat(relativeTokens).Distinct();
+            var tasks = allTokens.Select(token => SendPushAsync(
+                token,
+                $"⚠️ Warning — {patientName}",
+                detail,
+                new Dictionary<string, string>
+                {
+                    ["patientId"] = patientId.ToString(),
+                    ["type"]      = "warning_vitals",
+                },
+                cancellationToken));
+
+            await Task.WhenAll(tasks);
+        }
+
         // ── Save FCM token for a user ─────────────────────────────────────────
         public async Task RegisterFcmTokenAsync(
             string userId,

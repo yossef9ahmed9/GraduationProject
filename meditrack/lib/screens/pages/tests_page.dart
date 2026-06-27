@@ -34,6 +34,7 @@ class _TestsPageState extends State<TestsPage> {
   List<Map> _pendingOcrTests = [];
   String   _pendingFileName  = '';
   String   _pendingTestType  = 'CBC';
+  String?  _pendingPatientSummary;
 
   @override
   void dispose() {
@@ -182,9 +183,10 @@ class _TestsPageState extends State<TestsPage> {
       _busy = false; _isError = false;
       _message = 'Scan complete ($detectedType). Review below and press Save to keep it.';
       _ocrPatientId = patientId; _ocrLabId = labId; _ocrAppointmentId = appointmentId;
-      _pendingOcrTests = tests.whereType<Map>().toList();
-      _pendingFileName = file.name;
-      _pendingTestType = detectedType;
+      _pendingOcrTests       = tests.whereType<Map>().toList();
+      _pendingFileName       = file.name;
+      _pendingTestType       = detectedType;
+      _pendingPatientSummary = scan.patientSummary;
     });
   }
 
@@ -221,6 +223,7 @@ class _TestsPageState extends State<TestsPage> {
       if (res.ok) {
         // Clear the pending preview after successful save
         _pendingOcrTests = []; _pendingFileName = ''; _pendingTestType = 'CBC';
+        _pendingPatientSummary = null;
         _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
       }
     });
@@ -230,6 +233,7 @@ class _TestsPageState extends State<TestsPage> {
   void _discardOcrResult() {
     setState(() {
       _pendingOcrTests = []; _pendingFileName = ''; _pendingTestType = 'CBC';
+      _pendingPatientSummary = null;
       _ocrPatientId = null; _ocrLabId = null; _ocrAppointmentId = null;
       _message = null;
     });
@@ -437,12 +441,13 @@ class _TestsPageState extends State<TestsPage> {
                 // OCR preview panel — temporary, shown before user saves
                 if (_pendingOcrTests.isNotEmpty) ...[
                   _OcrPreviewPanel(
-                    tests: _pendingOcrTests,
-                    fileName: _pendingFileName,
-                    testType: _pendingTestType,
-                    onSave: _busy ? null : _saveOcrResult,
-                    onDiscard: _busy ? null : _discardOcrResult,
-                    busy: _busy,
+                    tests:         _pendingOcrTests,
+                    fileName:      _pendingFileName,
+                    testType:      _pendingTestType,
+                    patientSummary: _pendingPatientSummary,
+                    onSave:        _busy ? null : _saveOcrResult,
+                    onDiscard:     _busy ? null : _discardOcrResult,
+                    busy:          _busy,
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -560,6 +565,7 @@ class _OcrPreviewPanel extends StatelessWidget {
   final List<Map> tests;
   final String    fileName;
   final String    testType;
+  final String?   patientSummary;
   final VoidCallback? onSave;
   final VoidCallback? onDiscard;
   final bool busy;
@@ -571,6 +577,7 @@ class _OcrPreviewPanel extends StatelessWidget {
     required this.onSave,
     required this.onDiscard,
     required this.busy,
+    this.patientSummary,
   });
 
   @override
@@ -597,7 +604,7 @@ class _OcrPreviewPanel extends StatelessWidget {
               Text(fileName,
                   style: GoogleFonts.dmSans(fontSize: 11,
                       color: (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)
-                          .withOpacity(0.75))),
+                          .withValues(alpha: 0.75))),
           ])),
         ]),
       ),
@@ -631,6 +638,59 @@ class _OcrPreviewPanel extends StatelessWidget {
               );
             }).toList()),
       ),
+
+      // Save / Discard buttons
+      // ── Patient Summary ────────────────────────────────────
+      if (patientSummary != null) ...[
+        Builder(builder: (context) {
+          final hasAlerts = tests.any((t) =>
+              (t['status'] ?? t['Status'] ?? '') == 'High' ||
+              (t['status'] ?? t['Status'] ?? '') == 'Low');
+          final fgColor = hasAlerts
+              ? (isDark ? AppColors.darkBadgeAmberTxt : AppColors.badgeAmberTxt)
+              : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt);
+          final bgColor = hasAlerts
+              ? (isDark ? AppColors.darkBadgeAmberBg : AppColors.badgeAmberBg)
+              : (isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg);
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: fgColor.withValues(alpha: 0.3)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Icon(
+                    hasAlerts
+                        ? Icons.info_outline_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 16,
+                    color: fgColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Text('Summary',
+                      style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: fgColor)),
+                ]),
+                const SizedBox(height: 8),
+                Text(patientSummary!,
+                    style: GoogleFonts.dmSans(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: isDark
+                            ? AppColors.darkTextPrimary
+                            : AppColors.textPrimary)),
+              ]),
+            ),
+          );
+        }),
+      ],
 
       // Save / Discard buttons
       Padding(

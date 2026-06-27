@@ -36,14 +36,5 @@ namespace GraduationProject.Services
 
         /// <summary>True when the Python service is reachable and healthy.</summary>
         Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Trend analysis — send the last N VitalSigns readings for a patient
-        /// and get a near-future risk forecast (5 min / 10 min).
-        /// The backend loads the readings from DB automatically.
-        /// </summary>
-        Task<Result<HeartRiskTrendResponse>> PredictTrendAsync(
-            int patientId,
-            CancellationToken cancellationToken = default);
     }
 }

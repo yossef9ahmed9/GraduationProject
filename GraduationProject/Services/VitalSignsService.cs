@@ -1,4 +1,5 @@
 using GraduationProject.Contracts.EmergencyDispatches;
+using GraduationProject.Contracts.HeartRisk;
 using GraduationProject.Contracts.VitalSigns;
 
 namespace GraduationProject.Services
@@ -6,12 +7,14 @@ namespace GraduationProject.Services
     public class VitalSignsService(
         AppDbContext context,
         IAutoEmergencyService autoEmergency,
+        IHeartRiskService heartRiskService,
         IFcmService fcmService,
         ILogger<VitalSignsService> logger
         ) : IVitalSignsService
     {
         private readonly AppDbContext _context = context;
         private readonly IAutoEmergencyService _autoEmergency = autoEmergency;
+        private readonly IHeartRiskService _heartRiskService = heartRiskService;
         private readonly IFcmService _fcmService = fcmService;
         private readonly ILogger<VitalSignsService> _logger = logger;
 
@@ -74,8 +77,8 @@ namespace GraduationProject.Services
             if (!sensorBelongsToPatient)
                 return Result.Failure<VitalSignsResponse>(VitalSignsErrors.SensorNotBelongToPatient);
 
+            // ── 1. حفظ الـ vital ──────────────────────────────────────────────────
             var vital = request.Adapt<VitalSigns>();
-
             await _context.VitalSigns.AddAsync(vital, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
@@ -88,16 +91,61 @@ namespace GraduationProject.Services
                 await _context.SaveChangesAsync(cancellationToken);
             }
 
-            await _context.Entry(vital)
-                .Reference(v => v.Patient)
-                .LoadAsync(cancellationToken);
-
+            await _context.Entry(vital).Reference(v => v.Patient).LoadAsync(cancellationToken);
             var patient = vital.Patient;
 
-            // ── Auto-resolve emergency if vitals are now normal ───────────────
-            if (patient.IsInEmergency && !IsCritical(vital))
+            // ── 2. استشر الـ AI Model ─────────────────────────────────────────────
+            HeartRiskResponse? aiResult = null;
+            try
             {
-                // Cancel all Pending dispatches — ambulance hasn't accepted yet
+                var age = patient.BirthDate != default
+                    ? DateTime.Today.Year - patient.BirthDate.Year
+                    : 40;
+                var sex = patient.Gender?.ToLower() == "female" ? 0 : 1;
+
+                var aiRes = await _heartRiskService.PredictAsync(
+                    new HeartRiskRequest(
+                        Bpm:   vital.HeartRate,
+                        Spo2:  vital.OxygenSaturation,
+                        HrvMs: 50.0,   // default — sensor doesn't send HRV yet
+                        Age:   age,
+                        Sex:   sex),
+                    cancellationToken);
+
+                if (aiRes.IsSuccess) aiResult = aiRes.Value;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "AI risk assessment unavailable for vital {VitalId}. Falling back to threshold rules.",
+                    vital.Id);
+            }
+
+            // ── 3. قرار الـ tier ──────────────────────────────────────────────────
+            // AI متاح → استخدمه | AI offline → fallback thresholds
+            bool isCritical;
+            bool isWarning;
+
+            if (aiResult is not null)
+            {
+                isCritical = aiResult.Tier.Equals("CRITICAL", StringComparison.OrdinalIgnoreCase)
+                          || aiResult.Alert;
+                isWarning  = aiResult.Tier.Equals("WARNING",  StringComparison.OrdinalIgnoreCase)
+                          && !isCritical;
+            }
+            else
+            {
+                // Fallback — same thresholds as AutoEmergencyService
+                isCritical = vital.HeartRate >= 150 || vital.HeartRate <= 40
+                          || vital.OxygenSaturation < 90.0;
+                isWarning  = !isCritical &&
+                             (vital.HeartRate > 110 || vital.HeartRate < 55
+                           || vital.OxygenSaturation < 95.0);
+            }
+
+            // ── 4. كان في emergency وبقى Normal/Warning → auto-resolve ───────────
+            if (patient.IsInEmergency && !isCritical)
+            {
                 var pendingDispatches = await _context.EmergencyDispatches
                     .Include(d => d.Ambulance)
                     .Where(d => d.PatientId == patient.Id && d.Status == "Pending")
@@ -110,7 +158,7 @@ namespace GraduationProject.Services
                         d.Ambulance.AvailabilityStatus = "Available";
                 }
 
-                // OnTheWay / Arrived — don't cancel, just notify the driver
+                // OnTheWay/Arrived → notify driver, don't cancel
                 var activeDispatches = await _context.EmergencyDispatches
                     .Include(d => d.Ambulance)
                     .Where(d => d.PatientId == patient.Id &&
@@ -120,7 +168,6 @@ namespace GraduationProject.Services
                 foreach (var d in activeDispatches)
                 {
                     if (d.Ambulance?.FcmToken != null)
-                    {
                         await _fcmService.SendPushAsync(
                             d.Ambulance.FcmToken,
                             "✅ Patient Vitals Normal",
@@ -131,58 +178,75 @@ namespace GraduationProject.Services
                                 ["type"]      = "normal_vitals",
                             },
                             cancellationToken);
-                    }
                 }
 
                 patient.IsInEmergency = false;
                 vital.EmergencyStatus = false;
                 await _context.SaveChangesAsync(cancellationToken);
 
-                // Notify doctors + relatives
                 try
                 {
                     await _fcmService.SendNormalVitalsPushAsync(
-                        patient.Id,
-                        patient.Name,
+                        patient.Id, patient.Name,
                         $"HR: {vital.HeartRate} bpm | SpO₂: {vital.OxygenSaturation}%",
                         cancellationToken);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to send normal vitals notification for patient {PatientId}", patient.Id);
+                    _logger.LogError(ex,
+                        "Failed to send normal vitals notification for patient {PatientId}", patient.Id);
                 }
 
                 var resolvedResponse = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = null };
                 return Result.Success(resolvedResponse);
             }
 
+            // ── 5. Warning → notification للدكتور والقريب بس (مش dispatch) ────────
+            if (isWarning)
+            {
+                vital.EmergencyStatus = false;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                try
+                {
+                    await _fcmService.SendWarningVitalsPushAsync(
+                        patient.Id, patient.Name,
+                        aiResult?.Action ?? $"HR: {vital.HeartRate} bpm | SpO₂: {vital.OxygenSaturation}%",
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to send warning notification for patient {PatientId}", patient.Id);
+                }
+
+                var warnResponse = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = null };
+                return Result.Success(warnResponse);
+            }
+
+            // ── 6. Critical → dispatch ────────────────────────────────────────────
             EmergencyDispatchResponse? autoDispatch = null;
-            try
+            if (isCritical)
             {
-                autoDispatch = await _autoEmergency.TryTriggerEmergencyAsync(
-                    vital.Id, cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Auto-emergency dispatch failed for vital signs {VitalId} / patient {PatientId}. Manual review required.",
-                    vital.Id, vital.PatientId);
+                vital.EmergencyStatus = true;
+                await _context.SaveChangesAsync(cancellationToken);
+
+                try
+                {
+                    autoDispatch = await _autoEmergency.TryTriggerEmergencyAsync(
+                        vital.Id, cancellationToken);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Auto-emergency dispatch failed for vital {VitalId} / patient {PatientId}.",
+                        vital.Id, vital.PatientId);
+                }
             }
 
             var response = vital.Adapt<VitalSignsResponse>() with { AutoDispatch = autoDispatch };
-
             return Result.Success(response);
-        }
-
-        private static bool IsCritical(VitalSigns v)
-        {
-            if (v.HeartRate <= 40 || v.HeartRate >= 150) return true;
-            if (v.OxygenSaturation < 90.0) return true;
-            return false;
         }
     }
 }

@@ -205,14 +205,33 @@ class _HomeScreenState extends State<HomeScreen> {
       final app  = context.read<AppProvider>();
       final auth = context.read<AuthProvider>();
       final role = auth.role;
-      if (role == UserRole.patient) {
-        // Patient uses their own vitals endpoint
-        final me = app.patientByEmail(auth.user?.email ?? '');
-        if (me != null) {
-          app.refreshMyVitals(me.id);
-        }
-      } else if (role != UserRole.lab) {
-        app.refreshVitals(null);
+
+      switch (role) {
+        case UserRole.patient:
+          // مريض → يحدث vitals نفسه بس
+          final me = app.patientByEmail(auth.user?.email ?? '');
+          if (me != null) app.refreshMyVitals(me.id);
+          break;
+
+        case UserRole.doctor:
+        case UserRole.relative:
+          // دكتور/قريب → كل مريض مرتبط بيه بشكل منفصل
+          for (final patient in app.patients) {
+            apiService.getVitalsByPatient(patient.id).then((res) {
+              if (res.ok && res.data != null && mounted) {
+                app.updateVitalsForPatient(patient.id, res.data!);
+              }
+            });
+          }
+          break;
+
+        case UserRole.lab:
+        case UserRole.ambulance:
+          break; // مش محتاجين vitals polling
+
+        default:
+          // Admin
+          app.refreshVitals(null);
       }
     });
   }
@@ -244,9 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final bTs = DateTime.tryParse(b.timeStamp) ?? DateTime(0);
           return bTs.isAfter(aTs) ? b : a;
         });
-        return (latest.emergencyStatus || latest.heartRate > 100)
-            ? [latest]
-            : [];
+        return latest.emergencyStatus ? [latest] : [];
       case UserRole.ambulance:
         // For ambulance, treat active dispatches as the signal
         return app.emergencyVitals; // vignette only; dialog from notifs
@@ -449,7 +466,6 @@ class _MobileShell extends StatelessWidget {
       body: _EmergencyVignette(
         active: hasEmergency,
         child: Column(children: [
-          _TrendSimBanner(),
           Expanded(child: child),
         ]),
       ),
@@ -822,110 +838,6 @@ class _EmergencyVignetteState extends State<_EmergencyVignette>
             ),
           ),
       ],
-    );
-  }
-}
-
-/// Global banner shown at the top of every page while trend simulation is running.
-class _TrendSimBanner extends StatelessWidget {
-  const _TrendSimBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final app    = context.watch<AppProvider>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (!app.trendSimRunning && app.trendSimStatus == null) {
-      return const SizedBox.shrink();
-    }
-
-    final isRunning = app.trendSimRunning;
-    final progress  = app.trendSimTotal > 0
-        ? app.trendSimStep / app.trendSimTotal
-        : 0.0;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: isRunning
-            ? (isDark ? const Color(0xFF0D1E2D) : const Color(0xFFEFF6FF))
-            : (isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg),
-        border: Border(bottom: BorderSide(
-          color: isRunning
-              ? (isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt)
-              : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt),
-          width: 1,
-        )),
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          // Icon
-          if (isRunning)
-            SizedBox(
-              width: 14, height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                value: progress > 0 ? progress : null,
-                color: isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt,
-              ),
-            )
-          else
-            Icon(Icons.check_circle_rounded, size: 14,
-                color: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt),
-          const SizedBox(width: 8),
-          // Status text
-          Expanded(
-            child: Text(
-              app.trendSimStatus ?? (isRunning ? 'Trend simulation running…' : ''),
-              style: GoogleFonts.dmSans(
-                fontSize: 12, fontWeight: FontWeight.w500,
-                color: isRunning
-                    ? (isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt)
-                    : (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt),
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          // Stop / dismiss button
-          if (isRunning)
-            GestureDetector(
-              onTap: () => context.read<AppProvider>().stopTrendSimulation(),
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Text('Stop',
-                    style: GoogleFonts.dmSans(
-                        fontSize: 11, fontWeight: FontWeight.w700,
-                        color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)),
-              ),
-            )
-          else
-            GestureDetector(
-              onTap: () => context.read<AppProvider>().dismissTrendBanner(),
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Icon(Icons.close_rounded, size: 14,
-                    color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary),
-              ),
-            ),
-        ]),
-        // Progress bar (only while running)
-        if (isRunning && app.trendSimTotal > 0) ...[
-          const SizedBox(height: 5),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 3,
-              backgroundColor: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                  isDark ? AppColors.darkBadgeBlueTxt : AppColors.badgeBlueTxt),
-            ),
-          ),
-        ],
-      ]),
     );
   }
 }

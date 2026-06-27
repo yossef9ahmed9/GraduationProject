@@ -18,9 +18,6 @@ namespace GraduationProject.Services
         private readonly IFcmService _fcmService = fcmService;
         private readonly ILogger<AutoEmergencyService> _logger = logger;
 
-        private const int HeartRateCriticalLow  = 40;
-        private const int HeartRateCriticalHigh = 150;
-        private const double OxygenSaturationCriticalLow = 90.0;
         private const int StaleLocationMinutes = 5; // ambulances not seen in 5 min are skipped
 
         public async Task<EmergencyDispatchResponse?> TryTriggerEmergencyAsync(
@@ -36,9 +33,9 @@ namespace GraduationProject.Services
 
             var patient = vital.Patient;
 
-            if (!IsCritical(vital))
-                return null;
-
+            // Decision already made by VitalSignsService (AI + fallback).
+            // AutoEmergencyService receives a vitalId that has EmergencyStatus = true.
+            // We just check IsInEmergency to avoid duplicate dispatches.
             if (patient.IsInEmergency)
                 return null;
 
@@ -117,17 +114,6 @@ namespace GraduationProject.Services
             return firstDispatch?.Adapt<EmergencyDispatchResponse>();
         }
 
-        private static bool IsCritical(VitalSigns v)
-        {
-            if (v.HeartRate <= HeartRateCriticalLow || v.HeartRate >= HeartRateCriticalHigh)
-                return true;
-
-            if (v.OxygenSaturation < OxygenSaturationCriticalLow)
-                return true;
-
-            return false;
-        }
-
         private async Task<List<Ambulance>> FindNearestAmbulancesAsync(
             Patient patient,
             int count,
@@ -189,12 +175,12 @@ namespace GraduationProject.Services
         {
             var alerts = new List<string>();
 
-            if (v.HeartRate <= HeartRateCriticalLow)
+            if (v.HeartRate <= 40)
                 alerts.Add($"Critical low heart rate: {v.HeartRate} bpm");
-            else if (v.HeartRate >= HeartRateCriticalHigh)
+            else if (v.HeartRate >= 150)
                 alerts.Add($"Critical high heart rate: {v.HeartRate} bpm");
 
-            if (v.OxygenSaturation < OxygenSaturationCriticalLow)
+            if (v.OxygenSaturation < 90.0)
                 alerts.Add($"Critical low oxygen saturation: {v.OxygenSaturation}%");
 
             return "[AUTO-EMERGENCY] " + string.Join(" | ", alerts);

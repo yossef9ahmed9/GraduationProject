@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using GraduationProject.Contracts.MedicalTests;
+using GraduationProject.Contracts.OCR;
 using GraduationProject.Services.OCR;
 
 namespace GraduationProject.Controllers
@@ -62,9 +63,10 @@ namespace GraduationProject.Controllers
             {
                 return Ok(new
                 {
-                    extractedText = text,
+                    extractedText  = text,
                     analysis,
-                    medicalTest = (object?)null
+                    medicalTest    = (object?)null,
+                    patientSummary = (string?)null,
                 });
             }
 
@@ -107,10 +109,40 @@ namespace GraduationProject.Controllers
 
             return Ok(new
             {
-                extractedText = text,
+                extractedText  = text,
                 analysis,
-                medicalTest = createdTest
+                medicalTest    = createdTest,
+                patientSummary = GeneratePatientSummary(analysis),
             });
+        }
+
+        private static string GeneratePatientSummary(AnalysisResult analysis)
+        {
+            var abnormal = analysis.Tests
+                .Where(t => t.Status == "High" || t.Status == "Low")
+                .ToList();
+
+            if (!abnormal.Any())
+                return "✅ All your test results are within the normal range. Keep up the healthy lifestyle!";
+
+            var lines     = new List<string>();
+            var lowItems  = abnormal.Where(t => t.Status == "Low").ToList();
+            var highItems = abnormal.Where(t => t.Status == "High").ToList();
+
+            if (lowItems.Any())
+            {
+                var names = string.Join(", ", lowItems.Select(t => t.Name));
+                lines.Add($"⬇️ Low levels detected in: {names}. These may need attention.");
+            }
+
+            if (highItems.Any())
+            {
+                var names = string.Join(", ", highItems.Select(t => t.Name));
+                lines.Add($"⬆️ High levels detected in: {names}. Please consult your doctor.");
+            }
+
+            lines.Add("📋 We recommend sharing these results with your doctor for proper evaluation.");
+            return string.Join("\n", lines);
         }
     }
 }

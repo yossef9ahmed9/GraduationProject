@@ -829,9 +829,7 @@ class _SensorSimulatorSheetState extends State<_SensorSimulatorSheet>
   Map<String, dynamic>? _lastResult;
   String? _error;
 
-  // ── Trend simulator state ─────────────────────────────────────
-  String _trendScenario  = 'deteriorating';
-  String? _trendSimError;
+  // ── Trend simulator state — removed ──────────────────────────
 
   static const _scenarios = [
     ('normal',   'Normal',   Icons.favorite_rounded),
@@ -840,39 +838,17 @@ class _SensorSimulatorSheetState extends State<_SensorSimulatorSheet>
     ('low_hr',   'Low HR',   Icons.trending_down_rounded),
   ];
 
-  static const _trendScenarios = [
-    ('deteriorating',  'Deteriorating',  Icons.trending_down_rounded,  'HR 72→110, SpO₂ 98→91%'),
-    ('recovering',     'Recovering',     Icons.trending_up_rounded,    'HR 115→75, SpO₂ 91→97%'),
-    ('stable_normal',  'Stable Normal',  Icons.favorite_rounded,       'HR ~70, SpO₂ ~97%'),
-    ('stable_warning', 'Stable Warning', Icons.warning_amber_rounded,  'HR ~105, SpO₂ ~93%'),
-  ];
-
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this);
+    _tab = TabController(length: 2, vsync: this);
     _tab.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _tab.dispose();
-    // do NOT cancel _trendTimer — simulation lives in AppProvider now
     super.dispose();
-  }
-
-  Future<void> _sendTrend() async {
-    final app = context.read<AppProvider>();
-    setState(() => _trendSimError = null);
-    app.startTrendSimulation(
-      patientId: widget.patientId,
-      scenario:  _trendScenario,
-      steps:     10,
-    );
-  }
-
-  void _stopTrend() {
-    context.read<AppProvider>().stopTrendSimulation();
   }
 
   Future<void> _send() async {
@@ -954,7 +930,6 @@ class _SensorSimulatorSheetState extends State<_SensorSimulatorSheet>
                 fontSize: 13, fontWeight: FontWeight.w600),
             tabs: const [
               Tab(text: '🧪  Simulator'),
-              Tab(text: '📈  Trend'),
               Tab(text: '📡  Real Sensor'),
             ],
           ),
@@ -1041,145 +1016,8 @@ class _SensorSimulatorSheetState extends State<_SensorSimulatorSheet>
             ),
         ],
 
-        // ── Trend Simulator tab ──────────────────────────────────
-        if (_tab.index == 1) ...[
-          Builder(builder: (context) {
-            final app        = context.watch<AppProvider>();
-            final simRunning = app.trendSimRunning;
-            final simStep    = app.trendSimStep;
-            final simTotal   = app.trendSimTotal;
-            final simStatus  = app.trendSimStatus;
-            return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('TREND SCENARIO',
-                  style: GoogleFonts.dmSans(fontSize: 11, fontWeight: FontWeight.w600,
-                      letterSpacing: 0.8,
-                      color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-              const SizedBox(height: 4),
-              Text('Sends 10 readings one-by-one every 4s — runs in the background.',
-                  style: GoogleFonts.dmSans(fontSize: 12,
-                      color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-              const SizedBox(height: 12),
-              ...(_trendScenarios.map((s) {
-                final selected = _trendScenario == s.$1;
-                return GestureDetector(
-                  onTap: simRunning ? null : () => setState(() => _trendScenario = s.$1),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? (isDark ? AppColors.darkAccentMuted : AppColors.accentMuted)
-                          : (isDark ? AppColors.darkBgBase : AppColors.bgBase),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: selected
-                            ? (isDark ? AppColors.darkAccent : AppColors.accent)
-                            : (isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-                        width: selected ? 1.5 : 1,
-                      ),
-                    ),
-                    child: Row(children: [
-                      Icon(s.$3, size: 20,
-                          color: selected
-                              ? (isDark ? AppColors.darkAccent : AppColors.accent)
-                              : (isDark ? AppColors.darkTextTertiary : AppColors.textTertiary)),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(s.$2, style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600,
-                            color: selected
-                                ? (isDark ? AppColors.darkAccent : AppColors.accent)
-                                : (isDark ? AppColors.darkTextPrimary : AppColors.textPrimary))),
-                        Text(s.$4, style: GoogleFonts.dmSans(fontSize: 11,
-                            color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-                      ])),
-                      if (selected)
-                        Icon(Icons.check_circle_rounded, size: 16,
-                            color: isDark ? AppColors.darkAccent : AppColors.accent),
-                    ]),
-                  ),
-                );
-              })),
-              const SizedBox(height: 4),
-              if (!simRunning)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: Text('Start Live Simulation',
-                        style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
-                    onPressed: _sendTrend,
-                  ),
-                )
-              else ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: simTotal > 0 ? simStep / simTotal : null,
-                    minHeight: 6,
-                    backgroundColor: isDark ? AppColors.darkBorderColor : AppColors.borderColor,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(children: [
-                  Expanded(child: Text(
-                    'Step $simStep / $simTotal  ·  next in 4s',
-                    style: GoogleFonts.dmSans(fontSize: 12,
-                        color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary),
-                  )),
-                  TextButton(
-                    onPressed: _stopTrend,
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text('Stop',
-                        style: GoogleFonts.dmSans(fontSize: 12, fontWeight: FontWeight.w600,
-                            color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)),
-                  ),
-                ]),
-              ],
-              const SizedBox(height: 10),
-              if (simStatus != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: simStatus.startsWith('✅')
-                        ? (isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg)
-                        : (isDark ? AppColors.darkBgBase : AppColors.bgBase),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: simStatus.startsWith('✅')
-                          ? (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)
-                          : (isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-                    ),
-                  ),
-                  child: Text(simStatus,
-                      style: GoogleFonts.dmSans(fontSize: 12,
-                          color: simStatus.startsWith('✅')
-                              ? (isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt)
-                              : (isDark ? AppColors.darkTextSecondary : AppColors.textSecondary))),
-                ),
-              if (_trendSimError != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text('❌ $_trendSimError',
-                      style: GoogleFonts.dmSans(fontSize: 12,
-                          color: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt)),
-                ),
-            ]);
-          }),
-        ],
-
         // Real Sensor tab
-        if (_tab.index == 2) ...[
+        if (_tab.index == 1) ...[
           Text(
             'Link a physical MAX30102 sensor to your account.\n'
             'The sensor will automatically send readings every 30 seconds.',

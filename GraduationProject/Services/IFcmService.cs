@@ -12,6 +12,9 @@
         Task SendNormalVitalsPushAsync(int patientId, string patientName,
             string details, CancellationToken cancellationToken = default);
 
+        Task SendWarningVitalsPushAsync(int patientId, string patientName,
+            string detail, CancellationToken cancellationToken = default);
+
         Task RegisterFcmTokenAsync(string userId, string fcmToken,
             CancellationToken cancellationToken = default);
     }

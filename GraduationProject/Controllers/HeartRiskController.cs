@@ -142,34 +142,6 @@ namespace GraduationProject.Controllers
                 : StatusCode(503, new { healthy = false, message = "AI model service is unavailable." });
         }
 
-        // ── POST /api/heartrisk/predict/trend/{patientId} ─────────────────────
-        /// <summary>
-        /// Analyse the trend of recent VitalSigns readings and forecast near-future risk.
-        ///
-        /// The endpoint loads the last 10 readings for the given patient directly
-        /// from the database — no extra body is required. Returns:
-        ///   - Current risk tier
-        ///   - Trend direction (IMPROVING / STABLE / WORSENING)
-        ///   - BPM and SpO2 slopes (change per minute)
-        ///   - Forecasted risk tier in ~5 and ~10 minutes
-        ///   - Alert flag when deterioration is predicted
-        ///   - Human-readable summary message
-        ///
-        /// Requires at least 3 saved readings; returns 400 if there is
-        /// not enough data yet.
-        /// </summary>
-        [HttpPost("predict/trend/{patientId:int}")]
-        public async Task<IActionResult> PredictTrend(
-            int patientId,
-            CancellationToken cancellationToken)
-        {
-            var result = await _heartRiskService.PredictTrendAsync(patientId, cancellationToken);
-
-            return result.IsSuccess
-                ? Ok(result.Value)
-                : result.ToProblem();
-        }
-
         // ─────────────────────────────────────────────────────────────────────
         // Private helpers
         // ─────────────────────────────────────────────────────────────────────

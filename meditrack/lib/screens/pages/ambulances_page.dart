@@ -67,23 +67,6 @@ class _AmbulancesPageState extends State<AmbulancesPage>
     if (mounted) setState(() {});
   }
 
-  // DND toggle — Busy ↔ Available (shown in status bar for ambulance)
-  Future<void> _toggleDnd(AmbulanceResponse a) async {
-    final newStatus = a.availabilityStatus == 'Busy' ? 'Available' : 'Busy';
-    setState(() { _busy = true; _msg = null; });
-    final app = context.read<AppProvider>();
-    final ok  = await app.updateAmbulanceAvailability(a.id, newStatus);
-    if (!mounted) return;
-    setState(() {
-      _busy = false; _isError = !ok;
-      _msg = ok
-          ? (newStatus == 'Busy'
-          ? 'Do Not Disturb enabled — you appear Busy.'
-          : 'Do Not Disturb disabled — you appear Available.')
-          : 'Failed to update status.';
-    });
-  }
-
   Future<void> _accept(EmergencyDispatchResponse d) async {
     setState(() { _busy = true; _msg = null; });
     final res = await apiService.acceptDispatch(d.id);
@@ -131,14 +114,8 @@ class _AmbulancesPageState extends State<AmbulancesPage>
     return RefreshIndicator(
       onRefresh: _refresh,
       child: Column(children: [
-        if (role == UserRole.ambulance)
-          myAmbulance != null
-              ? _DndBar(
-            ambulance: myAmbulance,
-            busy: _busy,
-            onToggleDnd: () => _toggleDnd(myAmbulance),
-          )
-              : Padding(
+        if (role == UserRole.ambulance && myAmbulance == null)
+          Padding(
             padding: const EdgeInsets.all(16),
             child: AlertWidget(
                 message: 'Ambulance record not found. Contact admin.',
@@ -189,8 +166,8 @@ class _AmbulancesPageState extends State<AmbulancesPage>
                   ? app.ambulances
                   : app.ambulances
                   .where((a) =>
-              a.availabilityStatus == 'Available' ||
-                  a.availabilityStatus == 'Busy')
+                      a.availabilityStatus == 'Available' ||
+                      a.availabilityStatus == 'Busy')
                   .toList(),
               role: role,
               myEmail: myEmail,
@@ -199,72 +176,6 @@ class _AmbulancesPageState extends State<AmbulancesPage>
               _MessagesTab(myEmail: myEmail),
           ],
         )),
-      ]),
-    );
-  }
-}
-
-// ── DND bar — only shown for Ambulance role ───────────────────
-// Sign In / Sign Out buttons REMOVED — those are in Profile page.
-// Only DND toggle is here.
-
-class _DndBar extends StatelessWidget {
-  final AmbulanceResponse ambulance;
-  final bool busy;
-  final VoidCallback onToggleDnd;
-  const _DndBar(
-      {required this.ambulance, required this.busy, required this.onToggleDnd});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark  = Theme.of(context).brightness == Brightness.dark;
-    final status  = ambulance.availabilityStatus;
-    final isAvail = status == 'Available';
-    final isBusy  = status == 'Busy';
-    final isOut   = status == 'NotAvailable';
-
-    BadgeType bt;
-    if (isAvail)     bt = BadgeType.green;
-    else if (isBusy) bt = BadgeType.red;
-    else             bt = BadgeType.amber;
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkBgCard : AppColors.bgCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: isDark ? AppColors.darkBorderColor : AppColors.borderColor),
-      ),
-      child: Row(children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(ambulance.driverName,
-              style: GoogleFonts.dmSans(
-                  fontSize: 14, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 2),
-          Text(ambulance.serviceArea ?? ambulance.licensePlate,
-              style: GoogleFonts.dmSans(fontSize: 12,
-                  color: isDark
-                      ? AppColors.darkTextSecondary
-                      : AppColors.textSecondary)),
-        ])),
-        BadgeWidget(label: status, type: bt),
-        const SizedBox(width: 12),
-        // DND button — disabled if NotAvailable (signed out)
-        Column(children: [
-          Text('Do Not Disturb', style: GoogleFonts.dmSans(
-              fontSize: 11, fontWeight: FontWeight.w600,
-              color: isDark ? AppColors.darkTextSecondary : AppColors.textSecondary)),
-          Switch(
-            value: isBusy,
-            onChanged: busy || isOut ? null : (_) => onToggleDnd(),
-            activeThumbColor: isDark ? AppColors.darkBadgeRedTxt : AppColors.badgeRedTxt,
-            activeTrackColor: isDark ? AppColors.darkBadgeRedBg : AppColors.badgeRedBg,
-            inactiveThumbColor: isDark ? AppColors.darkBadgeGreenTxt : AppColors.badgeGreenTxt,
-            inactiveTrackColor: isDark ? AppColors.darkBadgeGreenBg : AppColors.badgeGreenBg,
-          ),
-        ]),
       ]),
     );
   }

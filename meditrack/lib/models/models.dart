@@ -503,11 +503,7 @@ class VitalSignsResponse {
     return '—';
   }
 
-  bool get isAlert =>
-      emergencyStatus ||
-      heartRate > 100 ||
-      heartRate < 60 ||
-      (oxygenSaturation != null && oxygenSaturation! < 95);
+  bool get isAlert => emergencyStatus; // الباك يقرر — Warning بتكون SnackBar بس
 
   factory VitalSignsResponse.fromJson(Map<String, dynamic> j) =>
       VitalSignsResponse(
@@ -756,11 +752,13 @@ class OcrScanResponse {
   final String extractedText;
   final Map<String, dynamic> analysis;
   final MedicalTestResponse? medicalTest;
+  final String? patientSummary;
 
   const OcrScanResponse({
     required this.extractedText,
     required this.analysis,
     this.medicalTest,
+    this.patientSummary,
   });
 
   bool get isValidScan => analysis['isValidScan'] as bool? ?? false;
@@ -770,9 +768,10 @@ class OcrScanResponse {
 
   factory OcrScanResponse.fromJson(Map<String, dynamic> j) =>
       OcrScanResponse(
-        extractedText: j['extractedText'] as String? ?? '',
-        analysis: j['analysis'] as Map<String, dynamic>? ?? {},
-        medicalTest: j['medicalTest'] is Map<String, dynamic>
+        extractedText:  j['extractedText'] as String? ?? '',
+        analysis:       j['analysis'] as Map<String, dynamic>? ?? {},
+        patientSummary: j['patientSummary'] as String?,
+        medicalTest:    j['medicalTest'] is Map<String, dynamic>
             ? MedicalTestResponse.fromJson(j['medicalTest'] as Map<String, dynamic>)
             : null,
       );
@@ -1043,56 +1042,6 @@ class HeartRiskRequest {
     'age':    age,
     'sex':    sex,
   };
-}
-
-// ── Heart Risk Trend Forecast ─────────────────────────────────
-// Matches GraduationProject.Contracts.HeartRisk.HeartRiskTrendResponse
-class HeartRiskTrendResponse {
-  final String  currentTier;
-  final String  trendDirection;
-  final double  bpmSlope;
-  final double  spo2Slope;
-  final String  forecastTier5Min;
-  final String  forecastTier10Min;
-  final bool    alert;
-  final String  message;
-  final double  confidence;
-  final double? timeToDangerMin;
-  final Map<String, double>? windowStats;
-  // New core field
-  final double  emergencyRiskPct;
-
-  const HeartRiskTrendResponse({
-    required this.currentTier,
-    required this.trendDirection,
-    required this.bpmSlope,
-    required this.spo2Slope,
-    required this.forecastTier5Min,
-    required this.forecastTier10Min,
-    required this.alert,
-    required this.message,
-    required this.confidence,
-    this.timeToDangerMin,
-    this.windowStats,
-    this.emergencyRiskPct = 0.0,
-  });
-
-  factory HeartRiskTrendResponse.fromJson(Map<String, dynamic> j) =>
-      HeartRiskTrendResponse(
-        currentTier       : j['currentTier']       as String? ?? '',
-        trendDirection    : j['trendDirection']     as String? ?? 'STABLE',
-        bpmSlope          : (j['bpmSlope']          as num?)?.toDouble() ?? 0.0,
-        spo2Slope         : (j['spo2Slope']         as num?)?.toDouble() ?? 0.0,
-        forecastTier5Min  : j['forecastTier5Min']   as String? ?? '',
-        forecastTier10Min : j['forecastTier10Min']  as String? ?? '',
-        alert             : j['alert']              as bool?   ?? false,
-        message           : j['message']            as String? ?? '',
-        confidence        : (j['confidence']        as num?)?.toDouble() ?? 0.0,
-        timeToDangerMin   : (j['timeToDangerMin']   as num?)?.toDouble(),
-        emergencyRiskPct  : (j['emergencyRiskPct']  as num?)?.toDouble() ?? 0.0,
-        windowStats       : (j['windowStats'] as Map<String, dynamic>?)
-            ?.map((k, v) => MapEntry(k, (v as num).toDouble())),
-      );
 }
 
 // ── Location ──────────────────────────────────────────────────

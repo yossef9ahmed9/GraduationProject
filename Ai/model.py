@@ -231,27 +231,34 @@ def classify_risk(probs: np.ndarray, bpm: float, spo2: float, hrv_ms: float) -> 
     tier            = tiers[predicted_class]
     override_reason = None
 
-    # Hard override rules — extreme sensor readings always win
-    if spo2 < 85:
-        tier = "CRITICAL"
-        override_reason = f"SpO2 critically low at {spo2}% (threshold: 85%)"
-    elif spo2 < 90 and tier == "NORMAL":
-        tier = "WARNING"
-        override_reason = f"SpO2 below safe threshold at {spo2}%"
+    # ── Hard override rules — MUST match .NET thresholds ──────────────────────
+    # Mirrors: AutoEmergencyService.cs  HeartRateCriticalHigh=150, Low=40, SpO2=90
+    #          VitalSignsService.cs     IsCritical() same values
 
-    if bpm > 170:
+    # CRITICAL overrides (same as AutoEmergencyService.cs)
+    if spo2 < 90.0:
         tier = "CRITICAL"
-        override_reason = f"Heart rate dangerously high at {bpm} BPM"
-    elif bpm < 35:
+        override_reason = f"SpO2 critically low at {spo2}% (threshold: 90%)"
+    elif bpm >= 150:
         tier = "CRITICAL"
-        override_reason = f"Heart rate dangerously low at {bpm} BPM"
-    elif (bpm > 130 or bpm < 45) and tier == "NORMAL":
-        tier = "WARNING"
-        override_reason = f"Heart rate outside safe range at {bpm} BPM"
+        override_reason = f"Heart rate critically high at {bpm} BPM (threshold: 150)"
+    elif bpm <= 40:
+        tier = "CRITICAL"
+        override_reason = f"Heart rate critically low at {bpm} BPM (threshold: 40)"
 
-    if hrv_ms < 8 and tier == "NORMAL":
+    # WARNING overrides (below critical, above normal) — only if model said NORMAL
+    elif spo2 < 95.0 and tier == "NORMAL":
         tier = "WARNING"
-        override_reason = f"HRV critically low at {hrv_ms} ms — possible arrhythmia"
+        override_reason = f"SpO2 below optimal at {spo2}%"
+    elif bpm >= 110 and tier == "NORMAL":
+        tier = "WARNING"
+        override_reason = f"Heart rate elevated at {bpm} BPM"
+    elif bpm <= 55 and tier == "NORMAL":
+        tier = "WARNING"
+        override_reason = f"Heart rate low at {bpm} BPM"
+    elif hrv_ms < 15 and tier == "NORMAL":
+        tier = "WARNING"
+        override_reason = f"HRV critically low at {hrv_ms} ms"
 
     cfg = TIER_CONFIG[tier]
     return {
@@ -260,7 +267,7 @@ def classify_risk(probs: np.ndarray, bpm: float, spo2: float, hrv_ms: float) -> 
         "confidence"     : round(confidence * 100, 1),
         "action"         : cfg["action"],
         "message"        : cfg["message"],
-        "alert"          : cfg["alert"],
+        "alert"          : tier == "CRITICAL",   # CRITICAL فقط يطلق alert
         "override_reason": override_reason,
         "probabilities"  : {
             "normal"  : round(float(probs[0]) * 100, 1),
@@ -328,11 +335,10 @@ def predict_trend(model, readings: list[dict], age: int, sex: int, hrv_ms: float
     tier_order   = {"NORMAL": 0, "WARNING": 1, "CRITICAL": 2}
 
     # ── How far are we from the CRITICAL thresholds? ─────────────────────────
-    # Critical zone: SpO2 < 85  OR  BPM > 170  OR  BPM < 35
-    # Danger zone (warning border): SpO2 < 90  OR  BPM > 130
-    spo2_to_critical = max(0.0, latest_spo2 - 85.0)   # 0 = already there
-    bpm_to_crit_high = max(0.0, 170.0 - latest_bpm)
-    bpm_to_crit_low  = max(0.0, latest_bpm - 35.0)
+    # Critical zone: SpO2 < 90  OR  BPM >= 150  OR  BPM <= 40  (matches .NET)
+    spo2_to_critical = max(0.0, latest_spo2 - 90.0)   # 0 = already there
+    bpm_to_crit_high = max(0.0, 150.0 - latest_bpm)
+    bpm_to_crit_low  = max(0.0, latest_bpm - 40.0)
     bpm_to_critical  = min(bpm_to_crit_high, bpm_to_crit_low)
 
     # Proximity score 0-100: 100 = at threshold, 0 = far away
@@ -374,50 +380,51 @@ def predict_trend(model, readings: list[dict], age: int, sex: int, hrv_ms: float
     ))
     emergency_risk_pct = round(emergency_risk_pct, 1)
 
-    # ── Time to CRITICAL threshold ────────────────────────────────────────────
-    def mins_to_threshold(val, s, threshold, direction="below"):
-        if s == 0: return None
-        if direction == "below":
-            if val <= threshold: return 0.0
-            if s >= 0:           return None
-            return (val - threshold) / abs(s)
-        else:
-            if val >= threshold: return 0.0
-            if s <= 0:           return None
-            return (threshold - val) / s
+    # ── Time to emergency threshold ──────────────────────────────────────────
+    # بنحسب: لو الـ slope فضل زي ما هو، امتى هيوصل لـ threshold؟
+    emergency_in_min = None
 
-    candidates = [t for t in [
-        mins_to_threshold(latest_spo2, spo2_slope, 85.0, "below"),
-        mins_to_threshold(latest_bpm,  bpm_slope,  170.0, "above"),
-        mins_to_threshold(latest_bpm,  bpm_slope,  35.0,  "below"),
-    ] if t is not None and t >= 0]
+    # HR بيزيد → امتى هيوصل 150؟
+    if bpm_slope > 0.1 and latest_bpm < 150:
+        mins = (150 - latest_bpm) / bpm_slope
+        if 0 < mins <= 120:
+            emergency_in_min = round(mins, 1)
+    # HR بيقل → امتى هيوصل 40؟
+    elif bpm_slope < -0.1 and latest_bpm > 40:
+        mins = (latest_bpm - 40) / abs(bpm_slope)
+        if 0 < mins <= 120:
+            emergency_in_min = round(mins, 1)
 
-    emergency_in_min = round(min(candidates), 1) if candidates else None
+    # SpO2 بتقل → امتى هتوصل 90؟
+    if spo2_slope < -0.05 and latest_spo2 > 90:
+        mins = (latest_spo2 - 90) / abs(spo2_slope)
+        if 0 < mins <= 120:
+            # لو أسرع من الـ HR → استخدم SpO2
+            if emergency_in_min is None or mins < emergency_in_min:
+                emergency_in_min = round(mins, 1)
 
     # ── Alert: risk > 60% and heading toward emergency ────────────────────────
     alert = emergency_risk_pct >= 60 and heading == "TOWARD_EMERGENCY"
 
     # ── Plain-language summary ────────────────────────────────────────────────
-    bpm_s_txt  = f"BPM {'↑' if bpm_slope > 0 else '↓'} {abs(bpm_slope):.1f}/min"
-    spo2_s_txt = f"SpO₂ {'↑' if spo2_slope > 0 else '↓'} {abs(spo2_slope):.2f}%/min"
-
+    # لو المريض في critical بالفعل → مش محتاج توقع
     if current_tier == "CRITICAL":
-        summary = (f"🚨 Already in critical range — BPM {latest_bpm:.0f}, "
-                   f"SpO₂ {latest_spo2:.1f}%. Emergency services should be alerted.")
-    elif heading == "TOWARD_EMERGENCY":
-        if emergency_in_min is not None and emergency_in_min <= 30:
-            t_str = f"{emergency_in_min:.0f} min" if emergency_in_min >= 1 else "< 1 min"
-            summary = (f"⚠ Heading toward emergency — {bpm_s_txt}, {spo2_s_txt}. "
-                       f"Critical threshold in ~{t_str}.")
+        emergency_in_min = None
+        heading          = "ALREADY_CRITICAL"
+        summary          = f"🚨 Already critical — BPM {latest_bpm:.0f}, SpO₂ {latest_spo2:.1f}%."
+        alert            = True
+    elif emergency_in_min is not None:
+        if emergency_in_min < 1:
+            t_str = "less than 1 minute"
+        elif emergency_in_min < 60:
+            t_str = f"~{emergency_in_min:.0f} minutes"
         else:
-            summary = (f"⚠ Trend is worsening — {bpm_s_txt}, {spo2_s_txt}. "
-                       f"Monitor closely.")
-    elif heading == "AWAY_FROM_EMERGENCY":
-        summary = (f"✓ Improving — {bpm_s_txt}, {spo2_s_txt}. "
-                   f"Moving away from danger zone.")
+            t_str = f"~{emergency_in_min/60:.1f} hours"
+        heading = "TOWARD_EMERGENCY"
+        summary = f"⚠️ Emergency expected in {t_str} if current trend continues."
     else:
-        summary = (f"Stable — BPM {latest_bpm:.0f}, SpO₂ {latest_spo2:.1f}%. "
-                   f"No significant change.")
+        heading = "STABLE"
+        summary = f"✅ No emergency predicted in the next 2 hours based on current readings."
 
     # ── Confidence ────────────────────────────────────────────────────────────
     window_min = float(t_min.max())
@@ -590,10 +597,10 @@ def predict_trend(model, readings: list[dict], age: int, sex: int, hrv_ms: float
             return (threshold - val) / slope_val
 
     candidates = [t for t in [
-        mins_to_cross(latest_spo2, spo2_slope, 93.0, "below"),
-        mins_to_cross(latest_spo2, spo2_slope, 85.0, "below"),
-        mins_to_cross(latest_bpm,  bpm_slope,  130.0, "above"),
-        mins_to_cross(latest_bpm,  bpm_slope,  170.0, "above"),
+        mins_to_cross(latest_spo2, spo2_slope, 95.0, "below"),
+        mins_to_cross(latest_spo2, spo2_slope, 90.0, "below"),
+        mins_to_cross(latest_bpm,  bpm_slope,  110.0, "above"),
+        mins_to_cross(latest_bpm,  bpm_slope,  150.0, "above"),
     ] if t is not None and t >= 0]
     time_to_danger_min = round(min(candidates), 1) if candidates else None
 

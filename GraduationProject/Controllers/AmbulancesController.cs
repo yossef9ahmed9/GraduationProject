@@ -59,6 +59,7 @@ namespace GraduationProject.Controllers
 
         // PUT /api/ambulances/{id}/availability
         [HttpPut("{id}/availability")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateAvailability(
             int id,
             [FromBody] UpdateAmbulanceAvailabilityRequest request,
