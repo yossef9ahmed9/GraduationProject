@@ -18,6 +18,7 @@
 - [AI Model](#-ai-model)
 - [Real-Time Chat](#-real-time-chat)
 - [Getting Started](#-getting-started)
+- [Demo Video](#-demo-video)
 
 ---
 
