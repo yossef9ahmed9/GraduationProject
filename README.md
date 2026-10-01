@@ -469,6 +469,16 @@ SCL      →      GPIO 9
 
 ---
 
+## 🎬 Demo Video
+
+A full walkthrough of the application — sensor readings, emergency dispatch, real-time chat, lab tests, and more.
+
+**[▶️ Watch Demo Video](Testing%20Video/QuickOverView.mp4)**
+
+> The video is located in the `Testing Video/` folder in this repository.
+
+---
+
 ## 👨‍💻 Built With ❤️ as a Graduation Project
 
 > *"We didn't just build an app — we built a safety net for patients who live far from care."*
